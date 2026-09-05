@@ -23,6 +23,7 @@ import '../../screens/otp_screen.dart';
 import '../../screens/privacy_policy_screen.dart';
 import '../../screens/problem_analyzer_screen.dart';
 import '../../screens/result_screen.dart';
+import '../../screens/consent_management_screen.dart';
 import '../../screens/settings_screen.dart';
 import 'otp_route_params.dart';
 
@@ -43,6 +44,7 @@ class AppRouteNames {
   static const String cases = 'cases';
   static const String authorities = 'authorities';
   static const String settings = 'settings';
+  static const String consentManagement = 'consentManagement';
   static const String privacyPolicy = 'privacyPolicy';
   static const String firebaseUnavailable = 'firebaseUnavailable';
   static const String legalTermsRoot = 'legalTermsRoot';
@@ -73,16 +75,15 @@ GoRouter buildRouter({
       final path = state.uri.path;
       if (!firebaseAvailable) {
         if (path == '/privacy-policy' ||
-          path == '/legal-terms' ||
-          path == '/firebase-unavailable') {
+            path == '/legal-terms' ||
+            path == '/firebase-unavailable') {
           return null;
         }
         return '/firebase-unavailable';
       }
-        final user = getAuthState().user;
-        final isProtectedRoute = path == '/home' ||
-          path.startsWith('/home/') ||
-          path == '/analyze';
+      final user = getAuthState().user;
+      final isProtectedRoute =
+          path == '/home' || path.startsWith('/home/') || path == '/analyze';
 
       if (isProtectedRoute && user == null) {
         return '/login';
@@ -90,13 +91,14 @@ GoRouter buildRouter({
 
       if (isProtectedRoute &&
           user != null &&
-          user.providerData.any((provider) =>
-              provider.providerId == 'password') &&
+          user.providerData
+              .any((provider) => provider.providerId == 'password') &&
           !user.emailVerified) {
         return '/email-auth';
       }
 
-      if (isProtectedRoute && await FirebaseTokenService().getIdToken() == null) {
+      if (isProtectedRoute &&
+          await FirebaseTokenService().getIdToken() == null) {
         return '/login';
       }
 
@@ -198,6 +200,11 @@ GoRouter buildRouter({
             path: 'settings',
             name: AppRouteNames.settings,
             builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: 'privacy-consent',
+            name: AppRouteNames.consentManagement,
+            builder: (context, state) => const ConsentManagementScreen(),
           ),
 
           // Legal utility routes

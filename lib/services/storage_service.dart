@@ -189,11 +189,21 @@ class StorageService {
         debugPrint('[StorageService] Clearing all local data');
       }
 
-      final boxes = Hive.box(_syncMetadataBox);
-      await boxes.clear();
+      final metadataBox = Hive.box(_syncMetadataBox);
+      await metadataBox.clear();
 
-      // TODO: Close and delete user data boxes when implementing
-      // actual encrypted storage for different data types
+      // Clear every app-owned encrypted data box. These boxes may contain
+      // legal case details, chat history, and profile information.
+      for (final boxName in const [
+        'cases',
+        'settings',
+        'chat_history',
+        'user_profile',
+      ]) {
+        if (Hive.isBoxOpen(boxName)) {
+          await Hive.box(boxName).clear();
+        }
+      }
 
       if (kDebugMode) {
         debugPrint('[StorageService] All local data cleared');

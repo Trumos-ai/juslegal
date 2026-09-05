@@ -7,6 +7,7 @@
 /// ```dart
 /// import 'package:juslegal/core.dart';
 /// ```
+library;
 
 // Unified configuration, constants, strings, theme, animations and templates.
 export 'core/config/app_config.dart';
@@ -21,6 +22,7 @@ export 'core/router/app_router.dart';
 export 'core/services/analytics_service.dart';
 
 // Utils
+export 'core/utils/email_validator.dart';
 export 'core/utils/logger.dart';
 export 'core/utils/password_validator.dart';
 export 'core/utils/rate_limiter.dart';

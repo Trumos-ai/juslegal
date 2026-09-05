@@ -91,6 +91,8 @@
   "register": "Register",
   "yourLegalRightsProtected": "Your legal rights, protected",
   "secureAccessPortal": "Secure Access Portal",
+  "newToJusLegal": "New to JusLegal? ",
+  "footerCopyright": "© JusLegal",
   "continueWith": "Continue with",
   "continueWithGoogle": "Continue with Google",
   "continueWithApple": "Continue with Apple",
@@ -136,7 +138,8 @@
       }
     }
   },
-  "resend": "Resend",
+  "resend": "Resend OTP",
+  "otpExpired": "OTP has expired. Please request a new one.",
   "verifyingOtp": "Verifying OTP...",
   "enterOtpDigits": "Please enter all 6 digits of the OTP",
   "otpResentSuccessfully": "OTP resent successfully",
@@ -154,10 +157,27 @@
   "pleaseEnterValidEmail": "Please enter a valid email address",
   "pleaseEnterYourPassword": "Please enter your password",
   "passwordMustBeAtLeast6Characters": "Password must be at least 6 characters",
+  "passwordStrengthRequirements": "Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.",
   "pleaseConfirmYourPassword": "Please confirm your password",
   "passwordsDoNotMatch": "Passwords do not match",
   "loginSuccessful": "Login successful!",
   "accountCreatedSuccessfully": "Account created successfully!",
+  "emailVerificationRequired": "Please verify your email address before signing in.",
+  "verifyYourEmail": "Verify your email",
+  "verificationEmailSent": "We sent a verification link to {email}.",
+  "@verificationEmailSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "checkVerification": "I verified my email",
+  "resendVerificationEmail": "Resend verification email",
+  "verificationEmailResent": "Verification email sent again.",
+  "emailVerifiedSuccessfully": "Email verified successfully!",
+  "emailNotVerifiedYet": "Your email is not verified yet.",
+  "sending": "Sending...",
   "passwordResetEmailSent": "Password reset email sent to {email}",
   "@passwordResetEmailSent": {
     "placeholders": {
@@ -258,6 +278,15 @@
   "serviceTemporarilyUnavailable": "Service temporarily unavailable. Please try again in a few minutes.",
   "noInternetConnection": "No internet connection. Please check your network and try again.",
   "tooManyRequests": "Too many requests. Please wait a moment and try again.",
+  "networkError": "Network error. Please check your connection and try again.",
+  "invalidCredentials": "Invalid email or password.",
+  "userNotFound": "No account was found with these details.",
+  "emailAlreadyInUse": "An account already exists with this email.",
+  "weakPassword": "Please choose a stronger password.",
+  "sessionExpired": "Your session expired. Please sign in again.",
+  "invalidPhoneNumber": "Please enter a valid phone number.",
+  "invalidOtp": "The verification code is invalid.",
+  "otpFailed": "OTP verification failed. Please try again.",
   "configurationError": "Service configuration error. Please try again later.",
   "unableToProcessResponse": "Unable to process AI response. Please try again."
 }

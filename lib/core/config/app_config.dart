@@ -109,13 +109,12 @@ class EnvConfig {
   static Future<void> initialize() async {
     configurationError = null;
     try {
-      await dotenv.dotenv.load(
-        fileName: const String.fromEnvironment(
-          'JUSLEGAL_ENV_FILE',
-          defaultValue: 'assets/.env',
-        ),
-        isOptional: true,
-      );
+      if (_environmentFile.isNotEmpty) {
+        await dotenv.dotenv.load(
+          fileName: _environmentFile,
+          isOptional: true,
+        );
+      }
       _EnvironmentState.load(dotenv.dotenv.env);
       if (!EnvironmentState.isValid) {
         throw const ConfigurationException(
@@ -251,6 +250,32 @@ class AppStrings {
   static const String actionVisitWebsite = 'Visit Website';
   static const String actionFindNearest = 'Find nearest';
   static const String actionContactAirline = 'Contact airline';
+
+  // Chat Error Messages (localized en/hi – resolved via localeProvider)
+  static const Map<String, Map<String, String>> chatErrorMessages = {
+    'serviceUnavailable': {
+      'en': 'AI services are unavailable. Please try again shortly.',
+      'hi': 'AI सेवाएँ उपलब्ध नहीं हैं। कृपया थोड़ी देर बाद पुनः प्रयास करें।',
+    },
+    'network': {
+      'en': 'Could not reach the AI service. Check your connection and try again.',
+      'hi': 'AI सेवा से संपर्क नहीं हो सका। अपना कनेक्शन जाँचें और फिर प्रयास करें।',
+    },
+    'generic': {
+      'en': 'Could not get an AI response. Please try again.',
+      'hi': 'AI उत्तर प्राप्त नहीं हो सका। कृपया पुनः प्रयास करें।',
+    },
+    'cancelled': {
+      'en': 'Previous request cancelled. Sending your new message…',
+      'hi': 'पिछला अनुरोध रद्द किया गया। आपका नया संदेश भेजा जा रहा है…',
+    },
+  };
+
+  static String chatErrorMessage(String key, String languageCode) {
+    final messages = chatErrorMessages[key];
+    if (messages == null) return '';
+    return messages[languageCode] ?? messages['en']!;
+  }
 
   // Error Messages
   static const String errServiceUnavailable =

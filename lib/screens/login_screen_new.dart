@@ -8,8 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:juslegal/core/core.dart';
 import 'package:juslegal/core/router/otp_route_params.dart';
+import 'package:juslegal/core/utils/phone_number_validator.dart';
 import '../l10n/gen/app_localizations.dart';
 import '../services/auth_handler.dart';
+import '../widgets/error_boundary.dart';
 import '../widgets/loading_widget.dart';
 
 enum AuthStep { initial, emailForm, phoneForm }
@@ -27,6 +29,7 @@ class LoginScreenNew extends ConsumerStatefulWidget {
 class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
     with SingleTickerProviderStateMixin {
   late final AnimationController _entrance;
+  late final Animation<double> _animation; // ✅ FIX: Moved to initState
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
   late final TapGestureRecognizer _terms;
@@ -35,6 +38,7 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
   late final RateLimiter _otpLimiter;
   AuthStep _step = AuthStep.initial;
   String? _error;
+  bool _isDisposed = false; // ✅ FIX: Added disposal flag
 
   @override
   void initState() {
@@ -51,10 +55,17 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
     _entrance = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 650))
       ..forward();
+    
+    // ✅ FIX: Cache animation
+    _animation = CurvedAnimation(
+      parent: _entrance,
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
   void dispose() {
+    _isDisposed = true; // ✅ FIX: Set disposal flag
     _entrance.dispose();
     _phoneController.dispose();
     _emailController.dispose();
@@ -79,14 +90,12 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
   }
 
   Future<void> _openTerms() => _openLink(
-      AppConfig.termsOfServiceUrl, _l10n.unableToOpenLink);
+      AppConfig.termsOfServiceUrl, AppLocalizations.of(context).unableToOpenLink);
 
   Future<void> _openPrivacy() =>
-      _openLink(AppConfig.privacyPolicyUrl, _l10n.unableToOpenLink);
+      _openLink(AppConfig.privacyPolicyUrl, AppLocalizations.of(context).unableToOpenLink);
 
   void _openLegal() => context.push('/legal-terms');
-
-  AppLocalizations get _l10n => AppLocalizations.of(context);
 
   void _message(String value) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
@@ -107,23 +116,37 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
     }
   }
 
+  // ✅ FIX: Using PhoneNumberValidator from utils
   Future<void> _sendOtp() async {
+    if (_isDisposed) return; // ✅ FIX: Check disposed flag
+    
     final phone = _phoneController.text.replaceAll(RegExp(r'\s+'), '').trim();
-    if (!RegExp(r'^\d{10}$').hasMatch(phone)) {
-      setState(() => _error = _l10n.validPhoneNumberError);
+    
+    // ✅ FIX: Use PhoneNumberValidator for proper validation
+    try {
+      PhoneNumberValidator.normalizeOrThrow(phone);
+    } catch (e) {
+      setState(() => _error = AppLocalizations.of(context).validPhoneNumberError);
       return;
     }
+    
+    // ✅ FIX: India-specific validation
+    if (phone.length != 10 || !RegExp(r'^[6-9]\d{9}$').hasMatch(phone)) {
+      setState(() => _error = AppLocalizations.of(context).validPhoneNumberError);
+      return;
+    }
+    
     if (!_otpLimiter.isCallAllowed()) {
-      _message(_l10n.tooManyOtpRequests);
+      _message(AppLocalizations.of(context).tooManyOtpRequests);
       return;
     }
     setState(() => _error = null);
     try {
       await ref.read(authProvider.notifier).verifyPhone(
-        '${AppConfig.defaultCountryCode}$phone',
+        '+91$phone', // ✅ FIX: Hardcoded India country code
         (id) {
           if (!mounted) return;
-          _message(_l10n.otpSentSuccessfully);
+          _message(AppLocalizations.of(context).otpSentSuccessfully);
           context.push('/otp',
               extra: OtpRouteParams(
                 verificationId: id,
@@ -133,7 +156,7 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
         (error) => _handleAuthError(error),
         (_) {
           if (!mounted) return;
-          _message(_l10n.phoneNumberVerifiedSuccessfully);
+          _message(AppLocalizations.of(context).phoneNumberVerifiedSuccessfully);
           context.go('/home');
         },
       );
@@ -142,79 +165,129 @@ class _LoginScreenNewState extends ConsumerState<LoginScreenNew>
     }
   }
 
+  // ✅ FIX: Use AuthService validation
   Future<void> _continueEmail() async {
     final email = _emailController.text.trim();
-    if (!_isValidEmail(email)) {
-      setState(() => _error = _l10n.pleaseEnterValidEmail);
+    
+    // ✅ FIX: Use regex from AuthService validation
+    final emailRegex = RegExp(
+      r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+    );
+    
+    if (!emailRegex.hasMatch(email)) {
+      setState(() => _error = AppLocalizations.of(context).pleaseEnterValidEmail);
       return;
     }
     setState(() => _error = null);
     if (mounted) await context.push('/email-auth');
   }
 
+  // ✅ FIX: Proper error localization
   void _handleAuthError(String message) {
-    if (!mounted) return;
-    setState(() => _error = message);
-    _message(message);
+    if (!mounted || _isDisposed) return; // ✅ FIX: Check disposed flag
+    
+    final localizedMessage = _getLocalizedErrorMessage(message);
+    setState(() => _error = localizedMessage);
+    _message(localizedMessage);
   }
 
-  static bool _isValidEmail(String email) {
-    return RegExp(r"^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$").hasMatch(email);
+  // ✅ FIX: Added error message localization
+  String _getLocalizedErrorMessage(String error) {
+    final errorLower = error.toLowerCase();
+    
+    if (errorLower.contains('network')) {
+      return AppLocalizations.of(context).networkError;
+    }
+    if (errorLower.contains('invalid-credential') ||
+        errorLower.contains('wrong-password')) {
+      return AppLocalizations.of(context).invalidCredentials;
+    }
+    if (errorLower.contains('user-not-found')) {
+      return AppLocalizations.of(context).userNotFound;
+    }
+    if (errorLower.contains('email-already-in-use')) {
+      return AppLocalizations.of(context).emailAlreadyInUse;
+    }
+    if (errorLower.contains('weak-password')) {
+      return AppLocalizations.of(context).weakPassword;
+    }
+    if (errorLower.contains('too-many-requests')) {
+      return AppLocalizations.of(context).tooManyRequests;
+    }
+    if (errorLower.contains('session-expired')) {
+      return AppLocalizations.of(context).sessionExpired;
+    }
+    if (errorLower.contains('invalid-phone-number')) {
+      return AppLocalizations.of(context).invalidPhoneNumber;
+    }
+    if (errorLower.contains('invalid-verification-code')) {
+      return AppLocalizations.of(context).invalidOtp;
+    }
+    if (errorLower.contains('otp')) {
+      return AppLocalizations.of(context).otpFailed;
+    }
+    
+    return error;
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final animation =
-        CurvedAnimation(parent: _entrance, curve: Curves.easeOutCubic);
-    return Scaffold(
-      backgroundColor: _background,
-      resizeToAvoidBottomInset: true,
-      body: Stack(children: [
-        const Positioned.fill(child: _DottedBackground()),
-        SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-                24, 16, 24, MediaQuery.viewInsetsOf(context).bottom + 24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                            begin: const Offset(0, .08), end: Offset.zero)
-                        .animate(animation),
-                    child: Column(children: [
-                      const _Header(),
-                      const SizedBox(height: 32),
-                      _LoginCard(
-                        step: _step,
-                        isLoading: auth.isLoading,
-                        error: _error,
-                        phoneController: _phoneController,
-                        emailController: _emailController,
-                        onStep: _changeStep,
-                        onGoogle: _google,
-                        onOtp: _sendOtp,
-                        onEmail: _continueEmail,
-                        onCreateAccount: () => context.push('/email-auth'),
-                      ),
-                      const SizedBox(height: 32),
-                      _Footer(terms: _terms, privacy: _privacy, legal: _legal),
-                    ]),
+    
+    return ErrorBoundary(
+      onError: (error, stack) {
+        logger.error('LoginScreen error', error: error, stackTrace: stack);
+        return const SizedBox.shrink();
+      },
+      child: Scaffold(
+        backgroundColor: _background,
+        resizeToAvoidBottomInset: true,
+        body: Stack(children: [
+          const Positioned.fill(child: _DottedBackground()),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                  24, 16, 24, MediaQuery.viewInsetsOf(context).bottom + 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: FadeTransition(
+                    opacity: _animation, // ✅ FIX: Use cached animation
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                              begin: const Offset(0, .08), end: Offset.zero)
+                          .animate(_animation), // ✅ FIX: Use cached animation
+                      child: Column(children: [
+                        const _Header(),
+                        const SizedBox(height: 32),
+                        _LoginCard(
+                          step: _step,
+                          isLoading: auth.isLoading,
+                          error: _error,
+                          phoneController: _phoneController,
+                          emailController: _emailController,
+                          onStep: _changeStep,
+                          onGoogle: _google,
+                          onOtp: _sendOtp,
+                          onEmail: _continueEmail,
+                          onCreateAccount: () => context.push('/email-auth'),
+                        ),
+                        const SizedBox(height: 32),
+                        _Footer(terms: _terms, privacy: _privacy, legal: _legal),
+                      ]),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        if (auth.isLoading)
-          Positioned.fill(
-              child: ColoredBox(
-                  color: Colors.white.withValues(alpha: .72),
-                  child: const _LoadingMessage())),
-      ]),
+          if (auth.isLoading)
+            Positioned.fill(
+                child: ColoredBox(
+                    color: Colors.white.withValues(alpha: .72),
+                    child: const _LoadingMessage())),
+        ]),
+      ),
     );
   }
 }
@@ -246,7 +319,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text('JusLegal', style: _style(_forest, 24, FontWeight.w700)),
+        Text(AppLocalizations.of(context).appName, style: _style(_forest, 24, FontWeight.w700)),
         const Tooltip(
             message: 'Help',
             child: Icon(Icons.help_outline_rounded, color: _forest)),
@@ -290,10 +363,10 @@ class _LoginCard extends StatelessWidget {
                   color: AppColors.shadow, blurRadius: 24, offset: Offset(0, 8))
             ]),
         child: Column(children: [
-          Text('Secure Access',
+          Text(AppLocalizations.of(context).secureAccessPortal,
               style: _style(AppColors.onSurface, 28, FontWeight.w700)),
           const SizedBox(height: 8),
-          Text('Sign in to continue your legal journey.',
+          Text(AppLocalizations.of(context).yourLegalRightsProtected,
               textAlign: TextAlign.center, style: _style(_green, 14)),
           const SizedBox(height: 24),
           AnimatedSwitcher(
@@ -307,19 +380,19 @@ class _LoginCard extends StatelessWidget {
                             begin: const Offset(.04, 0), end: Offset.zero)
                         .animate(animation),
                     child: child)),
-            child: _stepContent(),
+            child: _stepContent(context),
           ),
           const SizedBox(height: 20),
           _CreateAccount(onTap: isLoading ? null : onCreateAccount),
           const SizedBox(height: 12),
-          Text('Informational only, not an attorney substitute.',
+          Text(AppLocalizations.of(context).legalDisclaimer,
               textAlign: TextAlign.center,
               style: _style(
                   _green, 11, FontWeight.w400, 1.2, null, FontStyle.italic)),
         ]),
       );
 
-  Widget _stepContent() {
+  Widget _stepContent(BuildContext context) {
     switch (step) {
       case AuthStep.initial:
         return _Options(
@@ -362,24 +435,124 @@ class _Options extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(children: [
         _PrimaryButton(
-            label: 'Continue with Email',
+            label: AppLocalizations.of(context).continueWithEmail,
             icon: Icons.email_outlined,
             onPressed: isLoading ? null : onEmail),
         const SizedBox(height: 12),
         _SecondaryButton(
-            label: 'Continue with Mobile Number',
+            label: AppLocalizations.of(context).signInInstantlyWithPhoneOtp,
             icon: Icons.phone_outlined,
             onPressed: isLoading ? null : onPhone),
         const SizedBox(height: 24),
         const _Separator(),
         const SizedBox(height: 24),
-        _SecondaryButton(
-            label: 'Continue with Google',
+        Semantics( // ✅ FIX: Added accessibility
+          button: true,
+          label: 'Continue with Google',
+          child: _SecondaryButton(
+            label: AppLocalizations.of(context).continueWithGoogle,
             leading: Semantics(
                 label: 'Google',
                 child: Text('G', style: _style(_forest, 18, FontWeight.w700))),
-            onPressed: isLoading ? null : onGoogle),
+            onPressed: isLoading ? null : onGoogle,
+          ),
+        ),
       ]);
+}
+
+// ✅ FIX: Converted to StatefulWidget for loading state
+class _PhoneForm extends StatefulWidget {
+  const _PhoneForm({
+    super.key,
+    required this.controller,
+    required this.isLoading,
+    required this.error,
+    required this.onBack,
+    required this.onSubmit,
+  });
+  final TextEditingController controller;
+  final bool isLoading;
+  final String? error;
+  final VoidCallback onBack;
+  final Future<void> Function() onSubmit;
+
+  @override
+  State<_PhoneForm> createState() => _PhoneFormState();
+}
+
+class _PhoneFormState extends State<_PhoneForm> {
+  bool _isSendingOtp = false;
+
+  @override
+  Widget build(BuildContext context) => _FormShell(
+      title: AppLocalizations.of(context).signInInstantlyWithPhoneOtp,
+      onBack: widget.onBack,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Semantics( // ✅ FIX: Added accessibility
+          label: 'Phone number input',
+          textField: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _Label('Phone Number'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // ✅ FIX: India-specific prefix display
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusM),
+                    ),
+                    child: Text(
+                      '+91',
+                      style: _style(_forest, 16, FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: widget.controller,
+                      enabled: !widget.isLoading && !_isSendingOtp,
+                      autofocus: true,
+                      keyboardType: TextInputType.phone,
+                      autofillHints: const [AutofillHints.telephoneNumber],
+                      maxLength: 10,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10)
+                      ],
+                      onSubmitted: (_) => _handleSubmit(),
+                      style: _style(AppColors.onSurface, 16),
+                      decoration: _input('Enter 10-digit number')
+                          .copyWith(counterText: ''),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        _Error(widget.error),
+        const SizedBox(height: 16),
+        _PrimaryButton(
+          label: _isSendingOtp ? AppLocalizations.of(context).sending : AppLocalizations.of(context).sendOtp,
+          icon: _isSendingOtp ? null : Icons.arrow_forward,
+          onPressed: widget.isLoading || _isSendingOtp ? null : _handleSubmit,
+        ),
+      ]));
+
+  Future<void> _handleSubmit() async {
+    setState(() => _isSendingOtp = true);
+    try {
+      await widget.onSubmit();
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingOtp = false);
+      }
+    }
+  }
 }
 
 class _EmailForm extends StatelessWidget {
@@ -397,68 +570,33 @@ class _EmailForm extends StatelessWidget {
   final VoidCallback onSubmit;
   @override
   Widget build(BuildContext context) => _FormShell(
-      title: 'Continue with email',
+      title: AppLocalizations.of(context).continueWithEmail,
       onBack: onBack,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _Label('Email Address'),
-        const SizedBox(height: 8),
-        TextField(
-            controller: controller,
-            enabled: !isLoading,
-            autofocus: true,
-            keyboardType: TextInputType.emailAddress,
-            autofillHints: const [AutofillHints.email],
-            onSubmitted: (_) => onSubmit(),
-            style: _style(AppColors.onSurface, 16),
-            decoration: _input('Enter your email', icon: Icons.email_outlined)),
-        _Error(error),
-        const SizedBox(height: 16),
-        _PrimaryButton(
-            label: 'Continue', onPressed: isLoading ? null : onSubmit),
-      ]));
-}
-
-class _PhoneForm extends StatelessWidget {
-  const _PhoneForm(
-      {super.key,
-      required this.controller,
-      required this.isLoading,
-      required this.error,
-      required this.onBack,
-      required this.onSubmit});
-  final TextEditingController controller;
-  final bool isLoading;
-  final String? error;
-  final VoidCallback onBack;
-  final Future<void> Function() onSubmit;
-  @override
-  Widget build(BuildContext context) => _FormShell(
-      title: 'Continue with mobile',
-      onBack: onBack,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _Label('Phone Number'),
-        const SizedBox(height: 8),
-        TextField(
-            controller: controller,
-            enabled: !isLoading,
-            autofocus: true,
-            keyboardType: TextInputType.phone,
-            autofillHints: const [AutofillHints.telephoneNumber],
-            maxLength: 10,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10)
+        Semantics( // ✅ FIX: Added accessibility
+          label: 'Email address input',
+          textField: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _Label('Email Address'),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: controller,
+                  enabled: !isLoading,
+                  autofocus: true,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  onSubmitted: (_) => onSubmit(),
+                  style: _style(AppColors.onSurface, 16),
+                  decoration: _input('Enter your email', icon: Icons.email_outlined)),
             ],
-            onSubmitted: (_) => onSubmit(),
-            style: _style(AppColors.onSurface, 16),
-            decoration: _input('Enter 10-digit number',
-                    prefix: '${AppConfig.defaultCountryCode} ')
-                .copyWith(counterText: '')),
+          ),
+        ),
         _Error(error),
         const SizedBox(height: 16),
         _PrimaryButton(
-            label: 'Send OTP',
-            icon: Icons.arrow_forward,
+            label: AppLocalizations.of(context).continueWith,
             onPressed: isLoading ? null : onSubmit),
       ]));
 }
@@ -573,7 +711,7 @@ class _Separator extends StatelessWidget {
         const Expanded(child: Divider(color: AppColors.outlineVariant)),
         Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text('Or continue with', style: _style(_green, 12))),
+            child: Text(AppLocalizations.of(context).continueWith, style: _style(_green, 12))),
         const Expanded(child: Divider(color: AppColors.outlineVariant))
       ]);
 }
@@ -590,9 +728,9 @@ class _CreateAccount extends StatelessWidget {
       child: RichText(
           textAlign: TextAlign.center,
           text: TextSpan(style: _style(_green, 14), children: [
-            const TextSpan(text: 'New to JusLegal? '),
+            TextSpan(text: AppLocalizations.of(context).newToJusLegal),
             TextSpan(
-                text: 'Create an account',
+                text: AppLocalizations.of(context).register,
                 style: _style(_forest, 14, FontWeight.w700, 1.2,
                     TextDecoration.underline))
           ])));
@@ -608,7 +746,7 @@ class _Footer extends StatelessWidget {
   Widget build(BuildContext context) => Column(children: [
         const Divider(color: AppColors.outlineVariant),
         const SizedBox(height: 16),
-        Text('© 2024 JusLegal. Justice for all, grounded in ethics.',
+        Text(AppLocalizations.of(context).footerCopyright,
             textAlign: TextAlign.center, style: _style(_green, 11)),
         const SizedBox(height: 10),
         Wrap(
@@ -616,9 +754,9 @@ class _Footer extends StatelessWidget {
             spacing: 16,
             runSpacing: 8,
             children: [
-              _FooterLink('Privacy Policy', privacy),
-              _FooterLink('Terms of Service', terms),
-              _FooterLink('Legal Disclaimer', legal)
+              _FooterLink(AppLocalizations.of(context).privacyPolicy, privacy),
+              _FooterLink(AppLocalizations.of(context).terms, terms),
+              _FooterLink(AppLocalizations.of(context).legalDisclaimer, legal),
             ]),
       ]);
 }
@@ -645,7 +783,7 @@ class _LoadingMessage extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         const LoadingWidget(size: 40),
         const SizedBox(height: 16),
-        Text('Authenticating...',
+        Text(AppLocalizations.of(context).authenticating,
             style: _style(AppColors.textPrimary, 14, FontWeight.w600))
       ]));
 }

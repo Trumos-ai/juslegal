@@ -299,6 +299,12 @@ class AppLocalizationsHi extends AppLocalizations {
   String get secureAccessPortal => 'सुरक्षित एक्सेस पोर्टल';
 
   @override
+  String get newToJusLegal => 'JusLegal पर नए हैं? ';
+
+  @override
+  String get footerCopyright => '© JusLegal';
+
+  @override
   String get continueWith => 'जारी रखें';
 
   @override
@@ -378,7 +384,11 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
-  String get resend => 'दोबारा भेजें';
+  String get resend => 'OTP दोबारा भेजें';
+
+  @override
+  String get otpExpired =>
+      'OTP की वैधता समाप्त हो गई है। कृपया एक नया अनुरोध करें।';
 
   @override
   String get verifyingOtp => 'OTP सत्यापित किया जा रहा है...';
@@ -431,6 +441,10 @@ class AppLocalizationsHi extends AppLocalizations {
       'पासवर्ड कम से कम 6 वर्णों का होना चाहिए';
 
   @override
+  String get passwordStrengthRequirements =>
+      'पासवर्ड कम से कम 8 वर्णों का होना चाहिए और उसमें बड़े अक्षर, छोटे अक्षर, संख्या और विशेष वर्ण शामिल होना चाहिए।';
+
+  @override
   String get pleaseConfirmYourPassword => 'कृपया अपने पासवर्ड की पुष्टि करें';
 
   @override
@@ -441,6 +455,36 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get accountCreatedSuccessfully => 'खाता सफलतापूर्वक बनाया गया!';
+
+  @override
+  String get emailVerificationRequired =>
+      'साइन इन करने से पहले कृपया अपना ईमेल सत्यापित करें।';
+
+  @override
+  String get verifyYourEmail => 'अपना ईमेल सत्यापित करें';
+
+  @override
+  String verificationEmailSent(String email) {
+    return 'हमने $email पर सत्यापन लिंक भेजा है।';
+  }
+
+  @override
+  String get checkVerification => 'मैंने अपना ईमेल सत्यापित कर लिया है';
+
+  @override
+  String get resendVerificationEmail => 'सत्यापन ईमेल फिर से भेजें';
+
+  @override
+  String get verificationEmailResent => 'सत्यापन ईमेल फिर से भेजा गया।';
+
+  @override
+  String get emailVerifiedSuccessfully => 'ईमेल सफलतापूर्वक सत्यापित हुआ!';
+
+  @override
+  String get emailNotVerifiedYet => 'आपका ईमेल अभी तक सत्यापित नहीं हुआ है।';
+
+  @override
+  String get sending => 'भेजा जा रहा है...';
 
   @override
   String passwordResetEmailSent(String email) {
@@ -681,6 +725,35 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get tooManyRequests =>
       'Too many requests. Please wait a moment and try again.';
+
+  @override
+  String get networkError =>
+      'नेटवर्क त्रुटि। कृपया अपना कनेक्शन जाँचें और फिर प्रयास करें।';
+
+  @override
+  String get invalidCredentials => 'ईमेल या पासवर्ड अमान्य है।';
+
+  @override
+  String get userNotFound => 'इन विवरणों से कोई खाता नहीं मिला।';
+
+  @override
+  String get emailAlreadyInUse => 'इस ईमेल से पहले से एक खाता मौजूद है।';
+
+  @override
+  String get weakPassword => 'कृपया अधिक मजबूत पासवर्ड चुनें।';
+
+  @override
+  String get sessionExpired =>
+      'आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।';
+
+  @override
+  String get invalidPhoneNumber => 'कृपया एक वैध फोन नंबर दर्ज करें।';
+
+  @override
+  String get invalidOtp => 'सत्यापन कोड अमान्य है।';
+
+  @override
+  String get otpFailed => 'OTP सत्यापन विफल हुआ। कृपया फिर से प्रयास करें।';
 
   @override
   String get configurationError =>

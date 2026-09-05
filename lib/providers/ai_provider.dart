@@ -1,17 +1,48 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+
+import '../core/config/app_config.dart';
+import '../core/exceptions/ai_exceptions.dart';
+import '../core/services/analytics_service.dart';
+import '../core/utils/app_logger.dart';
+import '../models/chat_message_model.dart';
 import '../models/legal_result_model.dart';
 import '../models/problem_model.dart';
 import '../services/ai_service.dart';
-import '../core/exceptions/ai_exceptions.dart';
-import '../core/services/analytics_service.dart';
-import 'package:juslegal/core/core.dart';
-import '../models/chat_message_model.dart';
+import '../services/firebase_token_service.dart';
+import '../services/storage_service.dart';
 import 'locale_provider.dart';
+
+// ignore_for_file: constant_identifier_names
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+const int MIN_CONFIDENCE_SCORE = 1;
+const int MAX_CONFIDENCE_SCORE = 10;
+const int CHAT_HISTORY_LIMIT = 100;
+const int API_CONTEXT_WINDOW = 10;
+const Duration CHAT_DEBOUNCE_DELAY = Duration(milliseconds: 500);
+const String kChatHistoryBox = 'chat_history';
 
 // Provider for AIService instance
 final aiServiceProvider = Provider<AIService>((ref) => AIService());
 
+// ---------------------------------------------------------------------------
+// Cancellation token: used to cancel in-flight chat requests when a newer
+// message is sent or the notifier is disposed.
+// ---------------------------------------------------------------------------
+class RequestToken {
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+  void cancel() => _cancelled = true;
+}
+
+// ---------------------------------------------------------------------------
+// Chat state
+// ---------------------------------------------------------------------------
 class ChatState {
   final List<ChatMessage> conversationHistory;
   final bool isSending;
@@ -36,85 +67,247 @@ class ChatState {
       );
 }
 
-/// In-memory conversation state. It intentionally resets when the app closes.
+/// Chat state backed by Hive persistence. Resets only when history is
+/// explicitly cleared; survives app restarts (last [CHAT_HISTORY_LIMIT]
+/// messages).
 class ChatNotifier extends Notifier<ChatState> {
+  RequestToken? _activeRequest;
+  Timer? _debounceTimer;
+
   @override
-  ChatState build() => const ChatState();
+  ChatState build() {
+    ref.onDispose(_cancelPendingRequest);
+    _loadPersistedHistory();
+    return const ChatState();
+  }
 
   List<ChatMessage> getHistory() => state.conversationHistory;
 
+  /// Cancels any pending debounced send and the in-flight network request.
+  /// Registered with `ref.onDispose` for automatic cleanup.
+  void _cancelPendingRequest() {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _activeRequest?.cancel();
+    _activeRequest = null;
+    AppLogger.debug('ChatNotifier', 'Pending chat requests cancelled');
+  }
+
+  /// Public hook so the UI can cancel the in-flight request (user_cancelled).
+  void cancelCurrentRequest() {
+    _debounceTimer?.cancel();
+    if (_activeRequest != null) {
+      _activeRequest!.cancel();
+      _activeRequest = null;
+      state = state.copyWith(isSending: false);
+      SafeAnalytics.logEvent(name: 'user_cancelled', parameters: {
+        'context': 'chat',
+      });
+      AppLogger.info('ChatNotifier', 'User cancelled in-flight chat request');
+    }
+  }
+
+  Future<void> _loadPersistedHistory() async {
+    try {
+      if (!Hive.isBoxOpen(kChatHistoryBox)) {
+        await StorageService().openEncryptedBox<dynamic>(kChatHistoryBox);
+      }
+      final box = Hive.box(kChatHistoryBox);
+      final raw = box.get('messages');
+      if (raw is! List) return;
+      final messages = raw
+          .whereType<Map>()
+          .map((map) => ChatMessage.fromMap(Map<dynamic, dynamic>.from(map)))
+          .toList();
+      if (messages.isEmpty || state.conversationHistory.isNotEmpty) return;
+      state = state.copyWith(
+        conversationHistory: List.unmodifiable(messages),
+      );
+      AppLogger.debug('ChatNotifier',
+          'Restored ${messages.length} persisted chat messages');
+    } catch (error) {
+      AppLogger.warning(
+          'ChatNotifier', 'Failed to restore chat history: $error');
+    }
+  }
+
+  Future<void> _persistHistory(List<ChatMessage> messages) async {
+    try {
+      if (!Hive.isBoxOpen(kChatHistoryBox)) {
+        await StorageService().openEncryptedBox<dynamic>(kChatHistoryBox);
+      }
+      await Hive.box(kChatHistoryBox)
+          .put('messages', messages.map((m) => m.toMap()).toList());
+    } catch (error) {
+      AppLogger.warning(
+          'ChatNotifier', 'Failed to persist chat history: $error');
+    }
+  }
+
+  /// Adds a message and trims history to [CHAT_HISTORY_LIMIT] entries.
   void addMessage(String role, String content) {
     final trimmedContent = content.trim();
     if (trimmedContent.isEmpty) return;
+    final updated = List<ChatMessage>.from(state.conversationHistory)
+      ..add(ChatMessage(
+        role: role,
+        content: trimmedContent,
+        timestamp: DateTime.now(),
+      ));
+    final limited = updated.length > CHAT_HISTORY_LIMIT
+      ? updated.sublist(updated.length - CHAT_HISTORY_LIMIT)
+        : updated;
     state = state.copyWith(
-      conversationHistory: List.unmodifiable([
-        ...state.conversationHistory,
-        ChatMessage(
-          role: role,
-          content: trimmedContent,
-          timestamp: DateTime.now(),
-        ),
-      ]),
+      conversationHistory: List.unmodifiable(limited),
       clearError: true,
     );
+    _persistHistory(limited);
   }
 
+  /// Debounced send: restarts a [CHAT_DEBOUNCE_DELAY] timer on each call so
+  /// rapid taps only trigger a single network request.
+  Future<void> sendUserMessageDebounced(String userMessage) {
+    final completer = Completer<void>();
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(CHAT_DEBOUNCE_DELAY, () async {
+      try {
+        await sendUserMessage(userMessage);
+        completer.complete();
+      } catch (error) {
+        completer.completeError(error);
+      }
+    });
+    return completer.future;
+  }
+
+  /// Sends a user message. Errors are captured into state.error (never
+  /// rethrown) so the UI can consume [chatProvider].error directly.
   Future<void> sendUserMessage(String userMessage) async {
     final trimmedMessage = userMessage.trim();
     if (trimmedMessage.isEmpty || state.isSending) return;
 
+    // Race-condition guard: cancel any previous in-flight request.
+    _activeRequest?.cancel();
+    final token = RequestToken();
+    _activeRequest = token;
+
+    // Combine history update + sending flag into a minimal set of emissions.
     addMessage('user', trimmedMessage);
     state = state.copyWith(isSending: true, clearError: true);
-    final messagesForApi = state.conversationHistory
-        .map((message) => message.toMap())
+
+    // Sliding window: send only the last API_CONTEXT_WINDOW messages.
+    final history = state.conversationHistory;
+    final start = history.length > API_CONTEXT_WINDOW
+        ? history.length - API_CONTEXT_WINDOW
+        : 0;
+    final messagesForApi = history
+        .skip(start)
+        .map((message) => message.toApiMap())
         .toList(growable: false);
+    final tokenUsageEstimate = (messagesForApi.fold<int>(
+              0,
+              (sum, message) => sum + (message['content']?.length ?? 0),
+            ) /
+            4)
+        .ceil();
 
     try {
-      final response = await ref
-          .read(aiServiceProvider)
-          .sendMessage(
+      final response = await ref.read(aiServiceProvider).sendMessage(
             trimmedMessage,
             messagesForApi,
             languageCode: ref.read(localeProvider).languageCode,
           );
+      _activeRequest = null;
+      if (token.isCancelled) {
+        AppLogger.info('ChatNotifier',
+            'Request completed after cancellation; discarding response');
+        return;
+      }
       addMessage('assistant', response);
       state = state.copyWith(isSending: false, clearError: true);
+      SafeAnalytics.logEvent(name: 'token_usage', parameters: {
+        'context': 'chat',
+        'estimated_tokens': tokenUsageEstimate,
+      });
     } catch (error) {
-      state = state.copyWith(isSending: false, error: _friendlyError(error));
-      rethrow;
+      _activeRequest = null;
+      // Do not surface errors for superseded/cancelled requests.
+      if (token.isCancelled) {
+        AppLogger.info('ChatNotifier', 'Cancelled request failed silently');
+        return;
+      }
+      state = state.copyWith(
+        isSending: false,
+        error: _friendlyError(error),
+      );
+      // Errors intentionally NOT rethrown: UI consumes state.error.
     }
   }
 
-  void clearHistory() => state = const ChatState();
+  void clearHistory() {
+    _cancelPendingRequest();
+    state = const ChatState();
+    try {
+      if (Hive.isBoxOpen(kChatHistoryBox)) {
+        Hive.box(kChatHistoryBox).delete('messages');
+      }
+    } catch (error) {
+      AppLogger.warning('ChatNotifier', 'Failed to clear chat history: $error');
+    }
+  }
 
   String _friendlyError(Object error) {
+    final languageCode = ref.read(localeProvider).languageCode;
     if (error is AllProvidersFailedException) {
-      return 'AI services are unavailable. Please try again shortly.';
+      return AppStrings.chatErrorMessage('serviceUnavailable', languageCode);
     }
     if (error is NetworkException) {
-      return 'Could not reach the AI service. Check your connection and try again.';
+      return AppStrings.chatErrorMessage('network', languageCode);
     }
-    return 'Could not get an AI response. Please try again.';
+    return AppStrings.chatErrorMessage('generic', languageCode);
   }
 }
 
 final chatProvider =
     NotifierProvider<ChatNotifier, ChatState>(ChatNotifier.new);
 
+// Select-style convenience providers to reduce unnecessary rebuilds.
+final conversationLengthProvider = Provider<int>((ref) {
+  return ref.watch(
+      chatProvider.select((state) => state.conversationHistory.length));
+});
+
+final chatSendingProvider = Provider<bool>((ref) {
+  return ref.watch(chatProvider.select((state) => state.isSending));
+});
+
+final chatErrorProvider = Provider<String?>((ref) {
+  return ref.watch(chatProvider.select((state) => state.error));
+});
+
+// ---------------------------------------------------------------------------
 // Analysis state
+// ---------------------------------------------------------------------------
 class AnalysisState {
   final AsyncValue<LegalResultModel>? result;
   final String? error;
 
-  AnalysisState({this.result, this.error});
+  /// Overall AI processing progress from 0.0 to 1.0 (nullable = indeterminate).
+  final double? progress;
+
+  AnalysisState({this.result, this.error, this.progress});
 
   AnalysisState copyWith({
     AsyncValue<LegalResultModel>? result,
     String? error,
+    double? progress,
+    bool clearError = false,
+    bool clearProgress = false,
   }) {
     return AnalysisState(
       result: result ?? this.result,
-      error: error ?? this.error,
+      error: clearError ? null : error ?? this.error,
+      progress: clearProgress ? null : progress ?? this.progress,
     );
   }
 }
@@ -122,6 +315,7 @@ class AnalysisState {
 // AsyncNotifier for analysis state management
 class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
   late final AIService _aiService;
+  final FirebaseTokenService _tokenService = FirebaseTokenService();
 
   @override
   AnalysisState build() {
@@ -129,7 +323,21 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     return AnalysisState();
   }
 
+  void _setProgress(double progress, String step) {
+    AppLogger.debug('AnalysisNotifier',
+        'progress=${(progress * 100).toStringAsFixed(0)}% ($step)');
+    state = AsyncValue.data(state.value?.copyWith(progress: progress) ??
+        AnalysisState(progress: progress));
+  }
+
+  /// Estimates token usage (~4 chars per token) for analytics.
+  static int _estimateTokens(List<String> texts) {
+    final characters = texts.fold<int>(0, (sum, text) => sum + text.length);
+    return (characters / 4).ceil();
+  }
+
   Future<LegalResultModel> analyze(ProblemModel problem) async {
+    final stopwatch = Stopwatch()..start();
     try {
       if (problem.summary.trim().isEmpty) {
         final error = ArgumentError(AppStrings.errorProblemEmpty);
@@ -138,11 +346,10 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
       }
 
       state = const AsyncValue.loading();
+      _setProgress(0.05, 'starting');
 
-      if (kDebugMode) {
-        debugPrint('[AnalysisNotifier] analysis started '
-            '(category=${problem.category}, problemLength=${problem.summary.trim().length})');
-      }
+      AppLogger.info('AnalysisNotifier',
+          'analysis started (category=${problem.category}, problemLength=${problem.summary.trim().length})');
 
       // Log analysis started event using SafeAnalytics
       await SafeAnalytics.logEvent(
@@ -153,8 +360,9 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
         },
       );
 
-      // Initialize AI service
+      // Initialize AI service (validates worker-only API key configuration)
       await _aiService.initialize();
+      _setProgress(0.15, 'service_initialized');
 
       // Analyze the problem using updated method
       final analysisResult = await _aiService.analyze(
@@ -168,49 +376,60 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
         dynamicFieldValues: problem.dynamicFieldValues,
         languageCode: ref.read(localeProvider).languageCode,
       );
+      _setProgress(0.65, 'provider_response_received');
 
-      if (kDebugMode) {
-        debugPrint('[AnalysisNotifier] provider response received '
-            '(fieldCount=${analysisResult.length})');
-      }
+      AppLogger.info('AnalysisNotifier',
+          'provider response received (fieldCount=${analysisResult.length})');
+
+      await SafeAnalytics.logEvent(name: 'token_usage', parameters: {
+        'context': 'analysis',
+        'estimated_tokens': _estimateTokens([
+          problem.summary,
+          ...analysisResult.values.map((value) => value.toString()),
+        ]),
+      });
 
       // Convert Map to LegalResultModel
       final legalResult = _mapToLegalResultModel(analysisResult);
+      _setProgress(0.9, 'response_parsed');
 
-      if (kDebugMode) {
-        debugPrint('[AnalysisNotifier] analysis response parsed '
-            '(confidence=${legalResult.confidence})');
-      }
+      AppLogger.info('AnalysisNotifier',
+          'analysis response parsed (confidence=${legalResult.confidence})');
 
       // Update both new and old providers
       ref.read(lastResultProvider.notifier).set(legalResult);
 
-      // Log analysis completed event using SafeAnalytics
+      // Log analysis completed event with duration
+      stopwatch.stop();
       await SafeAnalytics.logEvent(
         name: AppStrings.eventAnalysisCompleted,
         parameters: {
           'category': problem.category,
           'confidence': legalResult.confidence,
+          'analysis_duration_ms': stopwatch.elapsedMilliseconds,
         },
       );
 
       state = AsyncValue.data(AnalysisState(
         result: AsyncValue.data(legalResult),
+        progress: 1.0,
       ));
 
       return legalResult;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[AnalysisNotifier] analysis failed '
-            '(category=${e.runtimeType})');
-      }
+    } catch (e, stack) {
+      stopwatch.stop();
+      AppLogger.error('AnalysisNotifier',
+          'analysis failed (category=${e.runtimeType}) after ${stopwatch.elapsedMilliseconds}ms',
+          e);
 
-      // Log analysis error event using SafeAnalytics
+      // Log analysis error event with duration and sanitized stack reference
       await SafeAnalytics.logEvent(
         name: AppStrings.eventAnalysisError,
         parameters: {
           'category': problem.category,
           'error_type': e.runtimeType.toString(),
+          'analysis_duration_ms': stopwatch.elapsedMilliseconds,
+          'error_stack': stack.toString().split('\n').take(5).join(' | '),
         },
       );
 
@@ -220,82 +439,151 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     }
   }
 
-  LegalResultModel _mapToLegalResultModel(Map<String, dynamic> data) {
-    if (kDebugMode) {
-      debugPrint('[AnalysisNotifier] mapping provider response '
-          '(fieldCount=${data.length})');
+  /// Retries the analysis once when a 401 indicates an expired Firebase ID
+  /// token. Forces a token refresh and logs the attempt to analytics.
+  Future<LegalResultModel> analyzeWithTokenRetry(ProblemModel problem) async {
+    try {
+      return await analyze(problem);
+    } catch (error) {
+      final message = error.toString();
+      final unauthorized =
+          message.contains('HTTP 401') || message.contains('401');
+      if (!unauthorized) rethrow;
+
+      AppLogger.warning(
+          'AnalysisNotifier', '401 received - attempting token refresh retry');
+      await SafeAnalytics.logEvent(name: 'token_refresh', parameters: {
+        'context': 'analysis',
+        'reason': 'unauthorized',
+      });
+
+      final refreshedToken = await _tokenService.forceRefreshToken();
+      if (refreshedToken == null) rethrow;
+
+      // Retry exactly once with the refreshed token.
+      return analyze(problem);
     }
-
-    data = _normalizeAnalysisPayload(data);
-
-    // Extract authorities list - handle both string and map formats
-    List<Map<String, String>> authorities = [];
-    if (data['authorities'] is List) {
-      final authList = data['authorities'] as List;
-      authorities = authList.map((e) {
-        if (e is String) {
-          // Convert string to map format
-          return {
-            'name': e,
-            'contact': _defaultContactFor(e),
-            'action': _defaultActionFor(e),
-          };
-        } else if (e is Map) {
-          return _normalizeStringMap(e);
-        }
-        return {'name': e.toString(), 'contact': '', 'action': ''};
-      }).toList();
-    }
-
-    return LegalResultModel(
-      category: _asString(data['category']),
-      applicableLaw: _asString(data['applicable_law']),
-      lawSummary: _asString(data['law_summary']),
-      userRights: _asString(data['user_rights']),
-      steps: _asStringList(data['steps']),
-      authorities: authorities,
-      documentsRequired: _asStringList(data['documents_required']),
-      physicalVisitRequired: _asBool(data['physical_visit_required']),
-      physicalVisitInstructions:
-          _nullableString(data['physical_visit_instructions']),
-      confidence: _asInt(data['confidence']),
-      isVerified: _asBool(data['isVerified']),
-      complaintHint: _asString(data['complaint_hint']),
-      caseSummary: _nullableString(data['case_summary']),
-      legalPosition: data['legal_position'] != null
-          ? _normalizeDynamicMap(data['legal_position'])
-          : null,
-      strength: _asStrengthScore(
-          data['strength'] ?? data['case_strength'] ?? data['confidence']),
-      legalAnalysis: _nullableString(data['legal_analysis']),
-      relevantLaws: _asStringMapList(data['relevant_laws']),
-      rightsAvailable: _asNullableStringList(data['rights_available']),
-      evidenceChecklist: _asEvidenceChecklist(data['evidence_checklist']),
-      recommendedActions: _asNullableStringList(data['recommended_actions']),
-      authoritiesDetailed: _asStringMapList(data['authorities_detailed']),
-      riskFactors: _asNullableStringList(data['risk_factors']),
-      estimatedOutcome: _nullableString(data['estimated_outcome']),
-      disclaimer: _nullableString(data['disclaimer']),
-      orderNumber: _nullableString(data['order_number']),
-      productDetails: _nullableString(data['product_details']),
-      amountPaid: _nullableString(data['amount_paid']),
-      paymentMethod: _nullableString(data['payment_method']),
-      companyName: _nullableString(data['company_name']),
-      incidentDate: _nullableString(data['incident_date']),
-      location: _nullableString(data['location']),
-    );
   }
 
-  Map<String, dynamic> _normalizeAnalysisPayload(
-      Map<String, dynamic> original) {
-    final data = Map<String, dynamic>.from(original);
+  LegalResultModel _mapToLegalResultModel(Map<String, dynamic> data) {
+    AppLogger.debug('AnalysisNotifier',
+        'mapping provider response (fieldCount=${data.length})');
+    final normalizer = AnalysisPayloadNormalizer();
+    return normalizer.toLegalResultModel(normalizer.normalize(data));
+  }
+
+  String _getErrorMessage(dynamic error) {
+    if (error is AllProvidersFailedException) {
+      return AppStrings.errServiceUnavailable;
+    } else if (error is NetworkException) {
+      return AppStrings.errNoInternet;
+    } else if (error is RateLimitException) {
+      return AppStrings.errTooManyRequests;
+    } else if (error is ApiKeyException) {
+      return AppStrings.errConfigError;
+    } else if (error is ParseException) {
+      return AppStrings.errParseError;
+    } else if (error is Exception) {
+      // Handle generic exceptions from AI service
+      final message = error.toString();
+      if (message.contains('unavailable') || message.contains('temporarily')) {
+        return AppStrings.errServiceUnavailable;
+      } else if (message.contains('network') ||
+          message.contains('connection')) {
+        return AppStrings.errNoInternet;
+      } else if (message.contains('API key') ||
+          message.contains('configured')) {
+        return AppStrings.errConfigError;
+      } else {
+        return AppStrings.errGenericError;
+      }
+    } else {
+      return AppStrings.errGenericError;
+    }
+  }
+
+  void reset() {
+    state = AsyncValue.data(AnalysisState());
+  }
+}
+
+// Provider for the analysis notifier
+final analysisProvider =
+    AsyncNotifierProvider<AnalysisNotifier, AnalysisState>(() {
+  return AnalysisNotifier();
+});
+
+// Convenience provider to watch only the result
+final analysisResultProvider = Provider<AsyncValue<LegalResultModel>?>((ref) {
+  final analysisState = ref.watch(analysisProvider);
+  return analysisState.when(
+    data: (state) => state.result,
+    loading: () => const AsyncValue.loading(),
+    error: (err, stack) => AsyncValue.error(err, stack),
+  );
+});
+
+// Convenience provider to watch loading state
+final analysisLoadingProvider = Provider<bool>((ref) {
+  return ref.watch(analysisProvider).isLoading;
+});
+
+// Provider for analysis error
+final analysisErrorProvider = Provider<String?>((ref) {
+  final analysisState = ref.watch(analysisProvider);
+  return analysisState.maybeWhen(
+    data: (state) => state.error,
+    error: (err, _) => err.toString(),
+    orElse: () => null,
+  );
+});
+
+// Provider for analysis progress (0.0 - 1.0, null = indeterminate)
+final analysisProgressProvider = Provider<double?>((ref) {
+  return ref.watch(analysisProvider).whenOrNull(
+        data: (state) => state.progress,
+        loading: () => null,
+      );
+});
+
+// ---------------------------------------------------------------------------
+// AnalysisPayloadNormalizer
+//
+// Split the former monolithic `_normalizeAnalysisPayload` into small,
+// independently testable transformation steps. Each step logs what it does.
+// ---------------------------------------------------------------------------
+class AnalysisPayloadNormalizer {
+  static const _tag = 'PayloadNormalizer';
+
+  /// Runs every transformation step in order.
+  Map<String, dynamic> normalize(Map<String, dynamic> original) {
+    var data = Map<String, dynamic>.from(original);
+    data = applyRawTextSections(data);
+    data = applyFieldAliases(data);
+    data = buildEvidenceChecklistFallback(data);
+    data = sanitizeTextFields(data);
+    data = sanitizeListFields(data);
+    data = normalizeLegalPosition(data);
+    data = normalizeStrength(data);
+    data = normalizeAuthorities(data);
+    data = normalizeEvidenceChecklist(data);
+    return data;
+  }
+
+  /// Step 1: If the payload embeds raw prose, parse section headings out of it.
+  Map<String, dynamic> applyRawTextSections(Map<String, dynamic> data) {
     final rawText = _firstString(
         data, ['analysis', 'response', 'text', 'content', 'raw', 'message']);
     if (rawText != null && rawText.trim().isNotEmpty) {
-      data.addAll(_parseSectionsFromText(rawText));
+      AppLogger.debug(_tag, 'Parsed raw text sections into structured fields');
+      data.addAll(parseSectionsFromText(rawText));
     }
+    return data;
+  }
 
-    final aliases = <String, List<String>>{
+  /// Step 2: Map well-known camelCase / alternative keys to canonical keys.
+  Map<String, dynamic> applyFieldAliases(Map<String, dynamic> data) {
+    const aliases = <String, List<String>>{
       'case_summary': ['caseSummary', 'summary'],
       'legal_position': ['legalPosition'],
       'strength': ['caseStrength', 'case_strength', 'score'],
@@ -315,7 +603,13 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
             orElse: () => null,
           );
     }
+    AppLogger.debug(_tag, 'Applied field aliases');
+    return data;
+  }
 
+  /// Step 3: Build an evidence checklist from split available/recommended keys.
+  Map<String, dynamic> buildEvidenceChecklistFallback(
+      Map<String, dynamic> data) {
     if (data['evidence_checklist'] == null) {
       final available = data['evidenceAvailable'] ?? data['evidence_available'];
       final recommended =
@@ -325,9 +619,14 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
           'available': available ?? <String>[],
           'recommended': recommended ?? <String>[],
         };
+        AppLogger.debug(_tag, 'Built evidence checklist from split keys');
       }
     }
+    return data;
+  }
 
+  /// Step 4: Sanitize all free-text fields.
+  Map<String, dynamic> sanitizeTextFields(Map<String, dynamic> data) {
     data['case_summary'] = _sanitizeText(data['case_summary']);
     data['legal_analysis'] =
         _sanitizeText(data['legal_analysis'] ?? data['law_summary']);
@@ -338,13 +637,24 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     data['complaint_hint'] = _sanitizeText(data['complaint_hint']);
     data['estimated_outcome'] = _sanitizeText(data['estimated_outcome']);
     data['disclaimer'] = _sanitizeText(data['disclaimer']);
+    AppLogger.debug(_tag, 'Sanitized text fields');
+    return data;
+  }
+
+  /// Step 5: Sanitize all list fields.
+  Map<String, dynamic> sanitizeListFields(Map<String, dynamic> data) {
     data['recommended_actions'] =
         _sanitizeList(data['recommended_actions'] ?? data['steps']);
     data['steps'] = _sanitizeList(data['steps'] ?? data['recommended_actions']);
     data['rights_available'] = _sanitizeList(data['rights_available']);
     data['risk_factors'] = _sanitizeList(data['risk_factors']);
     data['documents_required'] = _sanitizeList(data['documents_required']);
+    AppLogger.debug(_tag, 'Sanitized list fields');
+    return data;
+  }
 
+  /// Step 6: Ensure `legal_position` is a normalized map.
+  Map<String, dynamic> normalizeLegalPosition(Map<String, dynamic> data) {
     if (data['legal_position'] is! Map) {
       data['legal_position'] = {
         'standing': _sanitizeText(data['legal_position']),
@@ -352,6 +662,7 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
             _asStrengthScore(data['strength'] ?? data['confidence'])),
         'explanation': '',
       };
+      AppLogger.debug(_tag, 'Promoted legal_position from text to map');
     } else {
       final legalPosition = _normalizeDynamicMap(data['legal_position']);
       legalPosition['standing'] = _sanitizeText(legalPosition['standing']);
@@ -361,27 +672,46 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
       legalPosition['explanation'] =
           _sanitizeText(legalPosition['explanation']);
       data['legal_position'] = legalPosition;
+      AppLogger.debug(_tag, 'Normalized legal_position map');
     }
+    return data;
+  }
 
+  /// Step 7: Normalize strength score and relevant laws.
+  Map<String, dynamic> normalizeStrength(Map<String, dynamic> data) {
     data['strength'] = _asStrengthScore(data['strength'] ?? data['confidence']);
     data['relevant_laws'] = _sanitizeMapList(data['relevant_laws']);
+    AppLogger.debug(_tag, 'Normalized strength score');
+    return data;
+  }
+
+  /// Step 8: Normalize authority lists.
+  Map<String, dynamic> normalizeAuthorities(Map<String, dynamic> data) {
     data['authorities_detailed'] = _sanitizeAuthorityList(
         data['authorities_detailed'] ?? data['authorities']);
     data['authorities'] = _sanitizeAuthorityList(data['authorities']);
+    AppLogger.debug(_tag, 'Normalized authority lists');
+    return data;
+  }
 
+  /// Step 9: Normalize the evidence checklist to string lists.
+  Map<String, dynamic> normalizeEvidenceChecklist(
+      Map<String, dynamic> data) {
     final evidence = _asEvidenceChecklist(data['evidence_checklist']) ??
         <String, List<String>>{};
     data['evidence_checklist'] = {
       'available': _sanitizeList(evidence['available']) ?? <String>[],
       'recommended': _sanitizeList(evidence['recommended']) ?? <String>[],
     };
-
+    AppLogger.debug(_tag, 'Normalized evidence checklist');
     return data;
   }
 
-  Map<String, dynamic> _parseSectionsFromText(String rawText) {
+  /// Parses an unstructured AI response into named sections keyed by our
+  /// canonical field names.
+  Map<String, dynamic> parseSectionsFromText(String rawText) {
     final cleaned = rawText.replaceAll(RegExp(r'```(?:json)?|```'), '').trim();
-    final headings = <String, String>{
+    const headings = <String, String>{
       'case summary': 'case_summary',
       'legal position': 'legal_position',
       'case strength': 'strength',
@@ -399,6 +729,15 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
       'estimated outcome': 'estimated_outcome',
       'disclaimer': 'disclaimer',
     };
+    const listSections = [
+      'relevant_laws',
+      'rights_available',
+      'authorities_detailed',
+      'evidence_available',
+      'evidence_recommended',
+      'recommended_actions',
+      'risk_factors'
+    ];
     final result = <String, dynamic>{};
     String? currentKey;
     final buffer = <String>[];
@@ -406,15 +745,7 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     void flush() {
       if (currentKey == null || buffer.isEmpty) return;
       final text = buffer.join('\n').trim();
-      if ([
-        'relevant_laws',
-        'rights_available',
-        'authorities_detailed',
-        'evidence_available',
-        'evidence_recommended',
-        'recommended_actions',
-        'risk_factors'
-      ].contains(currentKey)) {
+      if (listSections.contains(currentKey)) {
         result[currentKey] = _splitSanitizedLines(text);
       } else {
         result[currentKey] = _sanitizeText(text);
@@ -457,6 +788,8 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     }
     return result;
   }
+
+  // -- Type conversion helpers ------------------------------------------------
 
   String? _firstString(Map<String, dynamic> data, List<String> keys) {
     for (final key in keys) {
@@ -541,9 +874,8 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
   int _asStrengthScore(dynamic value) {
     if (value is num) {
       final number = value.toInt();
-      return number > 10
-          ? (number / 10).round().clamp(1, 10).toInt()
-          : number.clamp(1, 10).toInt();
+      final normalized = number > 10 ? (number / 10).round() : number;
+      return normalized.clamp(MIN_CONFIDENCE_SCORE, MAX_CONFIDENCE_SCORE);
     }
     final text = value?.toString().toLowerCase() ?? '';
     final number = RegExp(r'\d+').firstMatch(text);
@@ -693,73 +1025,69 @@ class AnalysisNotifier extends AsyncNotifier<AnalysisState> {
     return AppStrings.actionVisitWebsite;
   }
 
-  String _getErrorMessage(dynamic error) {
-    if (error is AllProvidersFailedException) {
-      return AppStrings.errServiceUnavailable;
-    } else if (error is NetworkException) {
-      return AppStrings.errNoInternet;
-    } else if (error is RateLimitException) {
-      return AppStrings.errTooManyRequests;
-    } else if (error is ApiKeyException) {
-      return AppStrings.errConfigError;
-    } else if (error is ParseException) {
-      return AppStrings.errParseError;
-    } else if (error is Exception) {
-      // Handle generic exceptions from AI service
-      final message = error.toString();
-      if (message.contains('unavailable') || message.contains('temporarily')) {
-        return AppStrings.errServiceUnavailable;
-      } else if (message.contains('network') ||
-          message.contains('connection')) {
-        return AppStrings.errNoInternet;
-      } else if (message.contains('API key') ||
-          message.contains('configured')) {
-        return AppStrings.errConfigError;
-      } else {
-        return AppStrings.errGenericError;
-      }
-    } else {
-      return AppStrings.errGenericError;
+  /// Builds the domain model from a normalized payload.
+  LegalResultModel toLegalResultModel(Map<String, dynamic> data) {
+    // Extract authorities list - handle both string and map formats
+    List<Map<String, String>> authorities = [];
+    if (data['authorities'] is List) {
+      final authList = data['authorities'] as List;
+      authorities = authList.map((e) {
+        if (e is String) {
+          return {
+            'name': e,
+            'contact': _defaultContactFor(e),
+            'action': _defaultActionFor(e),
+          };
+        } else if (e is Map) {
+          return _normalizeStringMap(e);
+        }
+        return {'name': e.toString(), 'contact': '', 'action': ''};
+      }).toList();
     }
-  }
 
-  void reset() {
-    state = AsyncValue.data(AnalysisState());
+    return LegalResultModel(
+      category: _asString(data['category']),
+      applicableLaw: _asString(data['applicable_law']),
+      lawSummary: _asString(data['law_summary']),
+      userRights: _asString(data['user_rights']),
+      steps: _asStringList(data['steps']),
+      authorities: authorities,
+      documentsRequired: _asStringList(data['documents_required']),
+      physicalVisitRequired: _asBool(data['physical_visit_required']),
+      physicalVisitInstructions:
+          _nullableString(data['physical_visit_instructions']),
+      confidence: _asInt(data['confidence']),
+      isVerified: _asBool(data['isVerified']),
+      complaintHint: _asString(data['complaint_hint']),
+      caseSummary: _nullableString(data['case_summary']),
+      legalPosition: data['legal_position'] != null
+          ? _normalizeDynamicMap(data['legal_position'])
+          : null,
+      strength: _asStrengthScore(
+          data['strength'] ?? data['case_strength'] ?? data['confidence']),
+      legalAnalysis: _nullableString(data['legal_analysis']),
+      relevantLaws: _asStringMapList(data['relevant_laws']),
+      rightsAvailable: _asNullableStringList(data['rights_available']),
+      evidenceChecklist: _asEvidenceChecklist(data['evidence_checklist']),
+      recommendedActions: _asNullableStringList(data['recommended_actions']),
+      authoritiesDetailed: _asStringMapList(data['authorities_detailed']),
+      riskFactors: _asNullableStringList(data['risk_factors']),
+      estimatedOutcome: _nullableString(data['estimated_outcome']),
+      disclaimer: _nullableString(data['disclaimer']),
+      orderNumber: _nullableString(data['order_number']),
+      productDetails: _nullableString(data['product_details']),
+      amountPaid: _nullableString(data['amount_paid']),
+      paymentMethod: _nullableString(data['payment_method']),
+      companyName: _nullableString(data['company_name']),
+      incidentDate: _nullableString(data['incident_date']),
+      location: _nullableString(data['location']),
+    );
   }
 }
 
-// Provider for the analysis notifier
-final analysisProvider =
-    AsyncNotifierProvider<AnalysisNotifier, AnalysisState>(() {
-  return AnalysisNotifier();
-});
-
-// Convenience provider to watch only the result
-final analysisResultProvider = Provider<AsyncValue<LegalResultModel>?>((ref) {
-  final analysisState = ref.watch(analysisProvider);
-  return analysisState.when(
-    data: (state) => state.result,
-    loading: () => const AsyncValue.loading(),
-    error: (err, stack) => AsyncValue.error(err, stack),
-  );
-});
-
-// Convenience provider to watch loading state
-final analysisLoadingProvider = Provider<bool>((ref) {
-  return ref.watch(analysisProvider).isLoading;
-});
-
-// Provider for analysis error
-final analysisErrorProvider = Provider<String?>((ref) {
-  final analysisState = ref.watch(analysisProvider);
-  return analysisState.maybeWhen(
-    data: (state) => state.error,
-    error: (err, _) => err.toString(),
-    orElse: () => null,
-  );
-});
-
-// Provider for last result (for backward compatibility)
+// ---------------------------------------------------------------------------
+// Last result (for backward compatibility)
+// ---------------------------------------------------------------------------
 class LastResultNotifier extends Notifier<LegalResultModel?> {
   @override
   LegalResultModel? build() => null;

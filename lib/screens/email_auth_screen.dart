@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:juslegal/core/core.dart';
+import '../l10n/gen/app_localizations.dart';
 import '../services/auth_handler.dart';
 
 class EmailAuthScreen extends ConsumerStatefulWidget {
@@ -20,11 +21,17 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen>
   late final TextEditingController _emailController;
   late final TextEditingController _passwordController;
   late final TextEditingController _confirmPasswordController;
+  late final FocusNode _emailFocusNode;
   late final GlobalKey<FormState> _formKey;
 
   bool _isLoginMode = true;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _showVerification = false;
+  bool _isSendingReset = false;
+  bool _isVerificationLoading = false;
+
+  AppLocalizations get _l10n => AppLocalizations.of(context);
 
   @override
   void initState() {
@@ -32,13 +39,12 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen>
     _emailController = TextEditingController();
     _passwordController = TextEditingController();
     _confirmPasswordController = TextEditingController();
+    _emailFocusNode = FocusNode();
     _formKey = GlobalKey<FormState>();
-
     _slideController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 1),
       end: Offset.zero,
@@ -46,8 +52,10 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen>
       parent: _slideController,
       curve: Curves.easeOut,
     ));
-
     _slideController.forward();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _emailFocusNode.requestFocus();
+    });
   }
 
   @override
@@ -56,474 +64,168 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen>
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _emailFocusNode.dispose();
     super.dispose();
   }
 
   void _showSnackBar(String message, {bool isError = true}) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppTheme.error : AppTheme.success,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
-      ),
-    );
+      ));
   }
 
   Future<void> _handleSubmit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+    if (!_formKey.currentState!.validate()) return;
     try {
       if (_isLoginMode) {
         await ref.read(authProvider.notifier).signInWithEmail(
               _emailController.text.trim(),
               _passwordController.text.trim(),
             );
+        if (mounted) {
+          _showSnackBar(_l10n.loginSuccessful, isError: false);
+          context.go('/home');
+        }
       } else {
         await ref.read(authProvider.notifier).registerWithEmail(
               _emailController.text.trim(),
               _passwordController.text.trim(),
             );
+        if (mounted) {
+          setState(() => _showVerification = true);
+          _showSnackBar(_l10n.accountCreatedSuccessfully, isError: false);
+        }
       }
-
-      if (mounted) {
-        _showSnackBar(
-          _isLoginMode ? 'Login successful!' : 'Account created successfully!',
-          isError: false,
-        );
-        context.go('/home');
-      }
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar(e.toString());
+    } catch (error) {
+      if (!mounted) return;
+      if (error is EmailVerificationRequiredException) {
+        setState(() => _showVerification = true);
+        _showSnackBar(_l10n.emailVerificationRequired);
+      } else {
+        _showSnackBar(error.toString());
       }
     }
   }
 
   Future<void> _handleForgotPassword() async {
     final email = _emailController.text.trim();
-    if (email.isEmpty || !_isValidEmail(email)) {
-      _showSnackBar('Please enter a valid email address');
+    if (!EmailValidator.isValid(email)) {
+      _showSnackBar(_l10n.pleaseEnterValidEmail);
       return;
     }
-
+    setState(() => _isSendingReset = true);
     try {
       await ref.read(authProvider.notifier).resetPassword(email);
       if (mounted) {
-        _showSnackBar(
-          'Password reset email sent to $email',
-          isError: false,
-        );
+        _showSnackBar(_l10n.passwordResetEmailSent(email), isError: false);
       }
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar(e.toString());
-      }
+    } catch (error) {
+      if (mounted) _showSnackBar(error.toString());
+    } finally {
+      if (mounted) setState(() => _isSendingReset = false);
     }
   }
 
-  bool _isValidEmail(String email) {
-    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+  Future<void> _resendVerification() async {
+    setState(() => _isVerificationLoading = true);
+    try {
+      await ref.read(authProvider.notifier).sendEmailVerification();
+      if (mounted) _showSnackBar(_l10n.verificationEmailResent, isError: false);
+    } catch (error) {
+      if (mounted) _showSnackBar(error.toString());
+    } finally {
+      if (mounted) setState(() => _isVerificationLoading = false);
+    }
+  }
+
+  Future<void> _checkVerification() async {
+    setState(() => _isVerificationLoading = true);
+    try {
+      final verified =
+          await ref.read(authProvider.notifier).checkEmailVerification();
+      if (!mounted) return;
+      if (verified) {
+        _showSnackBar(_l10n.emailVerifiedSuccessfully, isError: false);
+        context.go('/home');
+      } else {
+        _showSnackBar(_l10n.emailNotVerifiedYet);
+      }
+    } catch (error) {
+      if (mounted) _showSnackBar(error.toString());
+    } finally {
+      if (mounted) setState(() => _isVerificationLoading = false);
+    }
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return _l10n.pleaseEnterYourPassword;
+    }
+    if (!_isLoginMode && !PasswordValidator.isStrong(value)) {
+      return _l10n.passwordStrengthRequirements;
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final isLoading = authState.isLoading;
-    final size = MediaQuery.of(context).size;
-    final compact = size.width < 600;
-
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: Column(
-                  children: [
-                    // Top Section (flex: 1)
-                    Expanded(
-                      flex: 1,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.balance_rounded,
-                              color: AppTheme.legalGold,
-                              size: 72,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              "Your legal rights, protected",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w400,
-                              ).copyWith(
-                                  color: Colors.white.withValues(alpha: 0.6)),
-                            ),
-                          ],
+    final isLoading = ref.watch(authProvider).isLoading ||
+        _isSendingReset ||
+        _isVerificationLoading;
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    return PopScope(
+      canPop: !isLoading,
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.balance_rounded,
+                                  color: AppTheme.legalGold, size: 72),
+                              const SizedBox(height: 12),
+                              Text(_l10n.yourLegalRightsProtected,
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.6),
+                                      fontSize: 12)),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-
-                    // Bottom Section
-                    SlideTransition(
-                      position: _slideAnimation,
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          compact ? 0 : 24,
-                          0,
-                          compact ? 0 : 24,
-                          16,
-                        ),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 450),
-                            child: Stack(
-                              children: [
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.surface,
-                                    borderRadius: compact
-                                        ? const BorderRadius.only(
-                                            topLeft: Radius.circular(24),
-                                            topRight: Radius.circular(24),
-                                          )
-                                        : BorderRadius.circular(24),
-                                    border: Border.all(color: AppTheme.border),
-                                    boxShadow: compact
-                                        ? null
-                                        : const [
-                                            BoxShadow(
-                                              color: AppColors.shadowBlack,
-                                              blurRadius: 24,
-                                              offset: Offset(0, 12),
-                                            ),
-                                          ],
-                                  ),
-                                  padding: const EdgeInsets.all(24),
-                                  child: Form(
-                                    key: _formKey,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // Toggle between Login and Register
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: GestureDetector(
-                                                onTap: () {
-                                                  setState(() {
-                                                    _isLoginMode = true;
-                                                  });
-                                                },
-                                                child: Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(vertical: 12),
-                                                  decoration: BoxDecoration(
-                                                    border: Border(
-                                                      bottom: BorderSide(
-                                                        color: _isLoginMode
-                                                            ? AppTheme.legalGold
-                                                            : AppTheme.border,
-                                                        width: 2,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    "Login",
-                                                    textAlign: TextAlign.center,
-                                                    style: GoogleFonts.inter(
-                                                      fontSize: 16,
-                                                      fontWeight: _isLoginMode
-                                                          ? FontWeight.bold
-                                                          : FontWeight.w500,
-                                                      color: _isLoginMode
-                                                          ? AppTheme.legalGold
-                                                          : AppTheme
-                                                              .textSecondary,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            Expanded(
-                                              child: GestureDetector(
-                                                onTap: () {
-                                                  setState(() {
-                                                    _isLoginMode = false;
-                                                  });
-                                                },
-                                                child: Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(vertical: 12),
-                                                  decoration: BoxDecoration(
-                                                    border: Border(
-                                                      bottom: BorderSide(
-                                                        color: !_isLoginMode
-                                                            ? AppTheme.legalGold
-                                                            : AppTheme.border,
-                                                        width: 2,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    "Register",
-                                                    textAlign: TextAlign.center,
-                                                    style: GoogleFonts.inter(
-                                                      fontSize: 16,
-                                                      fontWeight: !_isLoginMode
-                                                          ? FontWeight.bold
-                                                          : FontWeight.w500,
-                                                      color: !_isLoginMode
-                                                          ? AppTheme.legalGold
-                                                          : AppTheme
-                                                              .textSecondary,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 24),
-
-                                        // Email Field
-                                        TextFormField(
-                                          controller: _emailController,
-                                          keyboardType:
-                                              TextInputType.emailAddress,
-                                          enabled: !isLoading,
-                                          decoration: InputDecoration(
-                                            labelText: "Email",
-                                            hintText: "Enter your email",
-                                            prefixIcon: const Icon(
-                                                Icons.email_outlined),
-                                          ),
-                                          validator: (value) {
-                                            if (value == null ||
-                                                value.trim().isEmpty) {
-                                              return 'Please enter your email';
-                                            }
-                                            if (!_isValidEmail(value.trim())) {
-                                              return 'Please enter a valid email address';
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                        const SizedBox(height: 16),
-
-                                        // Password Field
-                                        TextFormField(
-                                          controller: _passwordController,
-                                          obscureText: _obscurePassword,
-                                          enabled: !isLoading,
-                                          decoration: InputDecoration(
-                                            labelText: "Password",
-                                            hintText: "Enter your password",
-                                            prefixIcon:
-                                                const Icon(Icons.lock_outlined),
-                                            suffixIcon: IconButton(
-                                              icon: Icon(
-                                                _obscurePassword
-                                                    ? Icons.visibility_outlined
-                                                    : Icons
-                                                        .visibility_off_outlined,
-                                              ),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _obscurePassword =
-                                                      !_obscurePassword;
-                                                });
-                                              },
-                                            ),
-                                          ),
-                                          validator: (value) {
-                                            if (value == null ||
-                                                value.trim().isEmpty) {
-                                              return 'Please enter your password';
-                                            }
-                                            if (value.trim().length < 6) {
-                                              return 'Password must be at least 6 characters';
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                        const SizedBox(height: 16),
-
-                                        // Confirm Password Field (only for register)
-                                        if (!_isLoginMode) ...[
-                                          TextFormField(
-                                            controller:
-                                                _confirmPasswordController,
-                                            obscureText:
-                                                _obscureConfirmPassword,
-                                            enabled: !isLoading,
-                                            decoration: InputDecoration(
-                                              labelText: "Confirm Password",
-                                              hintText: "Confirm your password",
-                                              prefixIcon: const Icon(
-                                                  Icons.lock_outlined),
-                                              suffixIcon: IconButton(
-                                                icon: Icon(
-                                                  _obscureConfirmPassword
-                                                      ? Icons
-                                                          .visibility_outlined
-                                                      : Icons
-                                                          .visibility_off_outlined,
-                                                ),
-                                                onPressed: () {
-                                                  setState(() {
-                                                    _obscureConfirmPassword =
-                                                        !_obscureConfirmPassword;
-                                                  });
-                                                },
-                                              ),
-                                            ),
-                                            validator: (value) {
-                                              if (value == null ||
-                                                  value.trim().isEmpty) {
-                                                return 'Please confirm your password';
-                                              }
-                                              if (value.trim() !=
-                                                  _passwordController.text
-                                                      .trim()) {
-                                                return 'Passwords do not match';
-                                              }
-                                              return null;
-                                            },
-                                          ),
-                                          const SizedBox(height: 16),
-                                        ],
-
-                                        // Forgot Password Link (only for login)
-                                        if (_isLoginMode)
-                                          Align(
-                                            alignment: Alignment.centerRight,
-                                            child: TextButton(
-                                              onPressed: isLoading
-                                                  ? null
-                                                  : _handleForgotPassword,
-                                              child: Text(
-                                                "Forgot Password?",
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w500,
-                                                  color: AppTheme.trustBlue,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-
-                                        const SizedBox(height: 8),
-
-                                        // Submit Button
-                                        SizedBox(
-                                          width: double.infinity,
-                                          height: 52,
-                                          child: ElevatedButton(
-                                            onPressed: isLoading
-                                                ? null
-                                                : _handleSubmit,
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor:
-                                                  AppTheme.trustBlue,
-                                              foregroundColor: Colors.white,
-                                              disabledBackgroundColor:
-                                                  AppTheme.border,
-                                              disabledForegroundColor:
-                                                  AppTheme.textSecondary,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                        AppTheme.radiusM),
-                                              ),
-                                            ),
-                                            child: isLoading
-                                                ? const SizedBox(
-                                                    width: 24,
-                                                    height: 24,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      valueColor:
-                                                          AlwaysStoppedAnimation<
-                                                                  Color>(
-                                                              Colors.white),
-                                                    ),
-                                                  )
-                                                : Text(
-                                                    _isLoginMode
-                                                        ? "Login"
-                                                        : "Register",
-                                                    style: GoogleFonts.inter(
-                                                      fontSize: 15,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 16),
-
-                                        // Back to main login screen
-                                        Center(
-                                          child: TextButton(
-                                            onPressed: isLoading
-                                                ? null
-                                                : () {
-                                                    context.pop();
-                                                  },
-                                            child: Text(
-                                              "Back to Login Options",
-                                              style: GoogleFonts.inter(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w500,
-                                                color: AppTheme.textSecondary,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                if (isLoading)
-                                  Positioned.fill(
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: AppTheme.surface
-                                            .withValues(alpha: 0.85),
-                                        borderRadius: compact
-                                            ? const BorderRadius.only(
-                                                topLeft: Radius.circular(24),
-                                                topRight: Radius.circular(24),
-                                              )
-                                            : BorderRadius.circular(24),
-                                      ),
-                                      child: const Center(
-                                        child: CircularProgressIndicator(),
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                      SlideTransition(
+                        position: _slideAnimation,
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                              compact ? 0 : 24, 0, compact ? 0 : 24, 16),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 450),
+                              child: _showVerification
+                                  ? _buildVerificationCard(compact, isLoading)
+                                  : _buildAuthCard(compact, isLoading),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -532,5 +234,222 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen>
       ),
     );
   }
-}
 
+  Widget _card({required Widget child, required bool compact}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: compact
+            ? const BorderRadius.only(
+                topLeft: Radius.circular(24), topRight: Radius.circular(24))
+            : BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.border),
+        boxShadow: compact
+            ? null
+            : const [
+                BoxShadow(
+                    color: AppColors.shadowBlack,
+                    blurRadius: 24,
+                    offset: Offset(0, 12))
+              ],
+      ),
+      padding: const EdgeInsets.all(24),
+      child: child,
+    );
+  }
+
+  Widget _buildVerificationCard(bool compact, bool isLoading) {
+    return _card(
+      compact: compact,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(_l10n.verifyYourEmail,
+              style: GoogleFonts.inter(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary)),
+          const SizedBox(height: 12),
+          Text(_l10n.verificationEmailSent(_emailController.text.trim()),
+              style: GoogleFonts.inter(color: AppTheme.textSecondary)),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: isLoading ? null : _checkVerification,
+            child: Text(_l10n.checkVerification),
+          ),
+          TextButton(
+            onPressed: isLoading ? null : _resendVerification,
+            child: Text(_l10n.resendVerificationEmail),
+          ),
+          TextButton(
+            onPressed: isLoading
+                ? null
+                : () => setState(() => _showVerification = false),
+            child: Text(_l10n.backToLoginOptions),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuthCard(bool compact, bool isLoading) {
+    return _card(
+      compact: compact,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: _modeButton(_l10n.login, true)),
+              Expanded(child: _modeButton(_l10n.register, false)),
+            ]),
+            const SizedBox(height: 24),
+            TextFormField(
+              controller: _emailController,
+              focusNode: _emailFocusNode,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [
+                AutofillHints.username,
+                AutofillHints.email
+              ],
+              enabled: !isLoading,
+              decoration: InputDecoration(
+                  labelText: _l10n.email,
+                  hintText: _l10n.enterYourEmail,
+                  prefixIcon: const Icon(Icons.email_outlined)),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return _l10n.pleaseEnterYourEmail;
+                }
+                if (!EmailValidator.isValid(value)) {
+                  return _l10n.pleaseEnterValidEmail;
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _passwordField(
+              controller: _passwordController,
+              obscure: _obscurePassword,
+              label: _l10n.password,
+              hint: _l10n.enterYourPassword,
+              autofillHints: _isLoginMode
+                  ? const [AutofillHints.password]
+                  : const [AutofillHints.newPassword],
+              onToggle: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+              validator: _validatePassword,
+              enabled: !isLoading,
+            ),
+            if (!_isLoginMode) ...[
+              const SizedBox(height: 16),
+              _passwordField(
+                controller: _confirmPasswordController,
+                obscure: _obscureConfirmPassword,
+                label: _l10n.confirmPassword,
+                hint: _l10n.confirmYourPassword,
+                autofillHints: const [AutofillHints.newPassword],
+                onToggle: () => setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return _l10n.pleaseConfirmYourPassword;
+                  }
+                  if (value.trim() != _passwordController.text.trim()) {
+                    return _l10n.passwordsDoNotMatch;
+                  }
+                  return null;
+                },
+                enabled: !isLoading,
+              ),
+            ],
+            if (_isLoginMode)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: isLoading ? null : _handleForgotPassword,
+                  child: Text(
+                      _isSendingReset ? _l10n.sending : _l10n.forgotPassword),
+                ),
+              ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: isLoading ? null : _handleSubmit,
+                child: isLoading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text(_isLoginMode ? _l10n.login : _l10n.register),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: TextButton(
+                onPressed: isLoading ? null : () => context.pop(),
+                child: Text(_l10n.backToLoginOptions),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _modeButton(String label, bool loginMode) {
+    final selected = _isLoginMode == loginMode;
+    return GestureDetector(
+      onTap: () => setState(() => _isLoginMode = loginMode),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+            border: Border(
+                bottom: BorderSide(
+                    color: selected ? AppTheme.legalGold : AppTheme.border,
+                    width: 2))),
+        child: Text(label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+                color: selected ? AppTheme.legalGold : AppTheme.textSecondary)),
+      ),
+    );
+  }
+
+  Widget _passwordField({
+    required TextEditingController controller,
+    required bool obscure,
+    required String label,
+    required String hint,
+    required Iterable<String> autofillHints,
+    required VoidCallback onToggle,
+    required String? Function(String?) validator,
+    required bool enabled,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscure,
+      enabled: enabled,
+      autofillHints: autofillHints,
+      decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixIcon: const Icon(Icons.lock_outlined),
+          suffixIcon: IconButton(
+            icon: Icon(obscure
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined),
+            onPressed: onToggle,
+          )),
+      validator: validator,
+    );
+  }
+}

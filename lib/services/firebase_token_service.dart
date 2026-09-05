@@ -64,6 +64,27 @@ class FirebaseTokenService {
     }
   }
 
+  /// Forces a token refresh (bypasses the cache). Used when the proxy
+  /// responds with 401 so the request can be retried once with a fresh token.
+  Future<String?> forceRefreshToken() async {
+    try {
+      final currentUser = _firebaseAuth.currentUser;
+      if (currentUser == null) return null;
+      if (kDebugMode) {
+        debugPrint('[FirebaseTokenService] Forcing ID token refresh');
+      }
+      final idTokenResult = await currentUser.getIdTokenResult(true);
+      _cachedToken = idTokenResult.token;
+      _tokenExpiry = idTokenResult.expirationTime;
+      return _cachedToken;
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[FirebaseTokenService] Forced refresh failed: $error');
+      }
+      return null;
+    }
+  }
+
   /// Clears cached token when user logs out or on auth state changes
   void clearCache() {
     _cachedToken = null;

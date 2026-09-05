@@ -303,6 +303,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get secureAccessPortal => 'Secure Access Portal';
 
   @override
+  String get newToJusLegal => 'New to JusLegal? ';
+
+  @override
+  String get footerCopyright => '© JusLegal';
+
+  @override
   String get continueWith => 'Continue with';
 
   @override
@@ -382,7 +388,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get resend => 'Resend';
+  String get resend => 'Resend OTP';
+
+  @override
+  String get otpExpired => 'OTP has expired. Please request a new one.';
 
   @override
   String get verifyingOtp => 'Verifying OTP...';
@@ -435,6 +444,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Password must be at least 6 characters';
 
   @override
+  String get passwordStrengthRequirements =>
+      'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.';
+
+  @override
   String get pleaseConfirmYourPassword => 'Please confirm your password';
 
   @override
@@ -445,6 +458,36 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get accountCreatedSuccessfully => 'Account created successfully!';
+
+  @override
+  String get emailVerificationRequired =>
+      'Please verify your email address before signing in.';
+
+  @override
+  String get verifyYourEmail => 'Verify your email';
+
+  @override
+  String verificationEmailSent(String email) {
+    return 'We sent a verification link to $email.';
+  }
+
+  @override
+  String get checkVerification => 'I verified my email';
+
+  @override
+  String get resendVerificationEmail => 'Resend verification email';
+
+  @override
+  String get verificationEmailResent => 'Verification email sent again.';
+
+  @override
+  String get emailVerifiedSuccessfully => 'Email verified successfully!';
+
+  @override
+  String get emailNotVerifiedYet => 'Your email is not verified yet.';
+
+  @override
+  String get sending => 'Sending...';
 
   @override
   String passwordResetEmailSent(String email) {
@@ -684,6 +727,34 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get tooManyRequests =>
       'Too many requests. Please wait a moment and try again.';
+
+  @override
+  String get networkError =>
+      'Network error. Please check your connection and try again.';
+
+  @override
+  String get invalidCredentials => 'Invalid email or password.';
+
+  @override
+  String get userNotFound => 'No account was found with these details.';
+
+  @override
+  String get emailAlreadyInUse => 'An account already exists with this email.';
+
+  @override
+  String get weakPassword => 'Please choose a stronger password.';
+
+  @override
+  String get sessionExpired => 'Your session expired. Please sign in again.';
+
+  @override
+  String get invalidPhoneNumber => 'Please enter a valid phone number.';
+
+  @override
+  String get invalidOtp => 'The verification code is invalid.';
+
+  @override
+  String get otpFailed => 'OTP verification failed. Please try again.';
 
   @override
   String get configurationError =>

@@ -6,59 +6,40 @@ export interface Env {
 }
 
 const MAX_REQUEST_BODY_BYTES = 100 * 1024;
+const MAX_MESSAGES = 20;
+const MAX_MESSAGE_CONTENT_CHARS = 20_000;
+const MAX_TOTAL_MESSAGE_CHARS = 60_000;
+const MAX_TOKENS = 2_400;
+const CLOCK_SKEW_SECONDS = 60;
+const FIREBASE_JWKS_URL =
+	"https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
 
-/**
- * SecurityAudit: Validates Firebase ID tokens instead of static proxy tokens.
- * Tokens are short-lived (1 hour) and cryptographically signed by Firebase.
- */
-function isAllowedOrigin(request: Request, env: Env): boolean {
-	const origin = request.headers.get("Origin");
-	const allowed = origin === null || isOriginAllowed(origin, env);
-	console.log("CORS isAllowedOrigin result", {
-		origin,
-		allowed,
-		reason: origin === null ? "no Origin header (non-CORS request)" : allowed ? "origin allowed" : "origin rejected",
-	});
-	return allowed;
+interface FirebaseClaims {
+	aud?: unknown;
+	iss?: unknown;
+	sub?: unknown;
+	exp?: unknown;
+	iat?: unknown;
+	auth_time?: unknown;
 }
 
-/**
- * Allows the deployed Firebase app and local Flutter web development servers.
- * Parsing the origin keeps localhost ports flexible without allowing lookalike
- * hosts such as `http://localhost.example.com`.
- */
+interface FirebaseJwk extends JsonWebKey {
+	kid?: string;
+}
+
+interface FirebaseJwks {
+	keys?: FirebaseJwk[];
+}
+
+let cachedJwks: { expiresAt: number; keys: Map<string, CryptoKey> } | null = null;
+
 function isOriginAllowed(origin: string, env: Env): boolean {
-	console.log("CORS isOriginAllowed checking origin", {
-		origin,
-		allowedOrigin: env.ALLOWED_ORIGIN,
-	});
-	if (origin === env.ALLOWED_ORIGIN) {
-		console.log("CORS isOriginAllowed result", {
-			origin,
-			allowed: true,
-			reason: "matches ALLOWED_ORIGIN exactly",
-		});
-		return true;
-	}
+	if (origin === env.ALLOWED_ORIGIN) return true;
 
 	try {
 		const url = new URL(origin);
-		const matchesLocalhost = url.protocol === "http:" && url.hostname === "localhost";
-		console.log("CORS isOriginAllowed parsed origin", {
-			origin,
-			protocol: url.protocol,
-			hostname: url.hostname,
-			matchesLocalhost,
-			allowed: matchesLocalhost,
-		});
-		return matchesLocalhost;
-	} catch (error) {
-		console.log("CORS isOriginAllowed result", {
-			origin,
-			allowed: false,
-			reason: "origin could not be parsed as a URL",
-			error: error instanceof Error ? error.message : String(error),
-		});
+		return url.protocol === "http:" && url.hostname === "localhost";
+	} catch {
 		return false;
 	}
 }
@@ -78,173 +59,279 @@ function corsHeaders(request: Request, env: Env): Headers {
 }
 
 function jsonResponse(
-	body: Record<string, string>,
+	body: Record<string, unknown>,
 	status: number,
 	cors: Headers,
 ): Response {
 	const headers = new Headers(cors);
-	headers.set("Content-Type", "application/json");
+	headers.set("Content-Type", "application/json; charset=utf-8");
+	headers.set("Cache-Control", "no-store");
+	headers.set("X-Content-Type-Options", "nosniff");
 	return new Response(JSON.stringify(body), { status, headers });
 }
 
-/**
- * Extracts and validates the Bearer token from Authorization header.
- * Returns the token if valid format, null otherwise.
- */
 function extractBearerToken(request: Request): string | null {
-	const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+	const token = request.headers.get("Authorization")?.match(/^Bearer\s+([^\s]+)$/i)?.[1];
 	return token || null;
 }
 
-/**
- * Validates Firebase ID token structure (JWT format).
- * In production, validate token signature using Firebase Admin SDK or Cloudflare's JWT verification.
- * For now, validate JWT structure: header.payload.signature format.
- */
-function isValidFirebaseToken(token: string): boolean {
-	// Validate JWT format (3 parts separated by dots)
-	const parts = token.split(".");
-	if (parts.length !== 3) {
-		return false;
+function base64UrlToBytes(value: string): Uint8Array {
+	const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+	const binary = atob(normalized);
+	return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function decodeJson<T>(value: string): T | null {
+	try {
+		const bytes = base64UrlToBytes(value);
+		return JSON.parse(new TextDecoder().decode(bytes)) as T;
+	} catch {
+		return null;
+	}
+}
+
+async function getFirebaseKeys(forceRefresh = false): Promise<Map<string, CryptoKey>> {
+	const now = Date.now();
+	if (!forceRefresh && cachedJwks && cachedJwks.expiresAt > now) return cachedJwks.keys;
+
+	const response = await fetch(FIREBASE_JWKS_URL, {
+		headers: { Accept: "application/json" },
+	});
+	if (!response.ok) throw new Error(`Firebase JWKS request failed: ${response.status}`);
+
+	const cacheControl = response.headers.get("Cache-Control") ?? "";
+	const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+	const maxAgeSeconds = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
+	const jwks = (await response.json()) as FirebaseJwks;
+	if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) {
+		throw new Error("Firebase JWKS response did not contain keys");
 	}
 
-	try {
-		// Decode and validate payload contains Firebase claims
-		const payload = JSON.parse(atob(parts[1]));
-		// Firebase tokens must have 'aud' (audience) claim matching the project
-		// and 'firebase' claim with identities
-		return (
-			typeof payload.aud === "string" &&
-			typeof payload.firebase === "object" &&
-			typeof payload.sub === "string"
+	const keys = new Map<string, CryptoKey>();
+	for (const jwk of jwks.keys) {
+		if (typeof jwk.kid !== "string") continue;
+		const key = await crypto.subtle.importKey(
+			"jwk",
+			jwk,
+			{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+			false,
+			["verify"],
 		);
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Validates Firebase ID token against expected project and checks expiration.
- * Returns authenticated user ID if valid, null otherwise.
- */
-function validateFirebaseToken(token: string, projectId: string): string | null {
-	if (!isValidFirebaseToken(token)) {
-		return null;
+		keys.set(jwk.kid, key);
 	}
 
-	try {
-		const parts = token.split(".");
-		const payload = JSON.parse(atob(parts[1]));
-
-		// Check audience matches Firebase project
-		if (payload.aud !== projectId) {
-			return null;
-		}
-
-		// Check token not expired (exp is in seconds)
-		const now = Math.floor(Date.now() / 1000);
-		if (typeof payload.exp !== "number" || payload.exp < now) {
-			return null;
-		}
-
-		// Return authenticated user ID (sub claim)
-		return payload.sub;
-	} catch {
-		return null;
-	}
+	cachedJwks = {
+		expiresAt: now + Math.max(60, Math.min(maxAgeSeconds, 86_400)) * 1000,
+		keys,
+	};
+	return keys;
 }
 
-/**
- * Validates Bearer token is a Firebase ID token with valid format and expiration.
- * Replaces static proxy token validation for improved security.
- */
-function hasValidBearerToken(request: Request, env: Env): boolean {
-	const token = extractBearerToken(request);
-	if (!token) {
-		return false;
-	}
-	return validateFirebaseToken(token, env.FIREBASE_PROJECT_ID) !== null;
-}
+async function validateFirebaseToken(token: string, projectId: string): Promise<string | null> {
+	const parts = token.split(".");
+	if (parts.length !== 3) return null;
 
-function isJsonRequest(request: Request): boolean {
-	return request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json") ?? false;
-}
-
-async function readRequestBody(request: Request): Promise<Uint8Array | null> {
-	const contentLength = request.headers.get("Content-Length");
+	const header = decodeJson<{ alg?: unknown; kid?: unknown }>(parts[0]);
+	const claims = decodeJson<FirebaseClaims>(parts[1]);
 	if (
-		contentLength !== null &&
-		Number.isFinite(Number(contentLength)) &&
-		Number(contentLength) > MAX_REQUEST_BODY_BYTES
+		!header ||
+		header.alg !== "RS256" ||
+		typeof header.kid !== "string" ||
+		!claims ||
+		claims.aud !== projectId ||
+		claims.iss !== `https://securetoken.google.com/${projectId}` ||
+		typeof claims.sub !== "string" ||
+		claims.sub.length === 0 ||
+		claims.sub.length > 128 ||
+		typeof claims.exp !== "number" ||
+		typeof claims.iat !== "number"
 	) {
 		return null;
 	}
 
-	const body = new Uint8Array(await request.arrayBuffer());
-	return body.byteLength <= MAX_REQUEST_BODY_BYTES ? body : null;
+	const now = Math.floor(Date.now() / 1000);
+	if (claims.exp <= now - CLOCK_SKEW_SECONDS || claims.iat > now + CLOCK_SKEW_SECONDS) {
+		return null;
+	}
+	if (typeof claims.auth_time === "number" && claims.auth_time > now + CLOCK_SKEW_SECONDS) {
+		return null;
+	}
+
+	const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+	let signature: Uint8Array;
+	try {
+		signature = base64UrlToBytes(parts[2]);
+	} catch {
+		return null;
+	}
+
+	try {
+		let keys = await getFirebaseKeys();
+		let key = keys.get(header.kid);
+		// Firebase can rotate signing keys before the cached max-age expires.
+		// Refresh once when a token references an unknown kid.
+		if (!key) {
+			keys = await getFirebaseKeys(true);
+			key = keys.get(header.kid);
+		}
+		if (!key) return null;
+		const valid = await crypto.subtle.verify(
+			{ name: "RSASSA-PKCS1-v1_5" },
+			key,
+			signature,
+			signingInput,
+		);
+		return valid ? claims.sub : null;
+	} catch {
+		return null;
+	}
+}
+
+async function hasValidBearerToken(request: Request, env: Env): Promise<boolean> {
+	const token = extractBearerToken(request);
+	if (!token) return false;
+	return (await validateFirebaseToken(token, env.FIREBASE_PROJECT_ID)) !== null;
+}
+
+async function readRequestBody(request: Request): Promise<Uint8Array | null> {
+	const contentLength = request.headers.get("Content-Length");
+	if (contentLength !== null) {
+		const length = Number(contentLength);
+		if (!Number.isSafeInteger(length) || length < 0 || length > MAX_REQUEST_BODY_BYTES) return null;
+	}
+
+	if (!request.body) return new Uint8Array();
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			total += value.byteLength;
+			if (total > MAX_REQUEST_BODY_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	const body = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		body.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return body;
+}
+
+function sanitizeUpstreamPayload(raw: unknown, expectedModel: string): Record<string, unknown> | null {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const input = raw as Record<string, unknown>;
+	if (input.model !== expectedModel) return null;
+	if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > MAX_MESSAGES) return null;
+
+	let totalChars = 0;
+	const messages: Array<{ role: string; content: string }> = [];
+	for (const item of input.messages) {
+		if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+		const message = item as Record<string, unknown>;
+		if (!['system', 'user', 'assistant'].includes(String(message.role)) || typeof message.content !== "string") {
+			return null;
+		}
+		if (message.content.length > MAX_MESSAGE_CONTENT_CHARS) return null;
+		totalChars += message.content.length;
+		if (totalChars > MAX_TOTAL_MESSAGE_CHARS) return null;
+		messages.push({ role: String(message.role), content: message.content });
+	}
+
+	const temperature = typeof input.temperature === "number" ? input.temperature : 0.2;
+	if (!Number.isFinite(temperature) || temperature < 0 || temperature > 1) return null;
+	const maxTokens = typeof input.max_tokens === "number" ? input.max_tokens : 1200;
+	if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > MAX_TOKENS) return null;
+
+	const output: Record<string, unknown> = {
+		model: expectedModel,
+		messages,
+		temperature,
+		max_tokens: maxTokens,
+		stream: false,
+	};
+	if (
+		input.response_format &&
+		typeof input.response_format === "object" &&
+		(input.response_format as Record<string, unknown>).type === "json_object"
+	) {
+		output.response_format = { type: "json_object" };
+	}
+	return output;
 }
 
 export default {
 	async fetch(request, env): Promise<Response> {
-		const allowedOrigin = isAllowedOrigin(request, env);
-		console.log("CORS fetch origin authorization", {
-			method: request.method,
-			url: request.url,
-			origin: request.headers.get("Origin"),
-			allowedOrigin,
-			reason: allowedOrigin ? "request may receive CORS headers" : "request will be rejected with 403",
-		});
 		const cors = corsHeaders(request, env);
-		if (!allowedOrigin) {
+		const origin = request.headers.get("Origin");
+		if (origin !== null && !isOriginAllowed(origin, env)) {
 			return jsonResponse({ error: "Origin not allowed" }, 403, cors);
 		}
 
 		if (request.method === "OPTIONS") {
 			return new Response(null, { status: 204, headers: cors });
 		}
-
 		if (request.method !== "POST") {
 			return jsonResponse({ error: "Method not allowed" }, 405, cors);
 		}
-		if (!isJsonRequest(request)) {
+		if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) {
 			return jsonResponse({ error: "Content-Type must be application/json" }, 415, cors);
 		}
 
 		const { pathname } = new URL(request.url);
-		if (pathname !== "/callGroq" && pathname !== "/callOpenRouter") {
-			return jsonResponse({ error: "Not found" }, 404, cors);
-		}
-		if (!hasValidBearerToken(request, env)) {
+		const expectedModel = pathname === "/callGroq"
+			? "openai/gpt-oss-20b"
+			: pathname === "/callOpenRouter"
+				? "openrouter/auto"
+				: null;
+		if (!expectedModel) return jsonResponse({ error: "Not found" }, 404, cors);
+
+		if (!(await hasValidBearerToken(request, env))) {
 			return jsonResponse({ error: "Unauthorized" }, 401, cors);
 		}
 
-		// TODO: Add a Cloudflare Rate Limiting binding and enforce it here using a
-		// stable authenticated-client key. No binding/namespace is configured yet.
 		try {
 			const body = await readRequestBody(request);
-			if (body === null) {
-				return jsonResponse({ error: "Request body too large" }, 413, cors);
-			}
+			if (body === null) return jsonResponse({ error: "Request body too large" }, 413, cors);
+
+			const raw = decodeJson<unknown>(new TextDecoder().decode(body));
+			const payload = sanitizeUpstreamPayload(raw, expectedModel);
+			if (!payload) return jsonResponse({ error: "Invalid AI request payload" }, 400, cors);
 
 			const upstreamResponse = await fetch(
-				pathname === "/callGroq"
-					? "https://api.groq.com/openai/v1/chat/completions"
-					: "https://openrouter.ai/api/v1/chat/completions",
-				{
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${pathname === "/callGroq" ? env.GROQ_API_KEY : env.OPENROUTER_API_KEY}`,
-						"Content-Type": "application/json",
-					},
-					body,
+			pathname === "/callGroq"
+				? "https://api.groq.com/openai/v1/chat/completions"
+				: "https://openrouter.ai/api/v1/chat/completions",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${pathname === "/callGroq" ? env.GROQ_API_KEY : env.OPENROUTER_API_KEY}`,
+					"Content-Type": "application/json",
 				},
+				body: JSON.stringify(payload),
+			},
 			);
 
 			if (!upstreamResponse.ok) {
 				return jsonResponse({ error: "AI provider request failed" }, 502, cors);
 			}
+
 			const headers = new Headers(cors);
-			headers.set("Content-Type", "application/json");
+			headers.set("Content-Type", "application/json; charset=utf-8");
+			headers.set("Cache-Control", "no-store");
+			headers.set("X-Content-Type-Options", "nosniff");
 			return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers });
 		} catch {
 			return jsonResponse({ error: "Internal error" }, 500, cors);

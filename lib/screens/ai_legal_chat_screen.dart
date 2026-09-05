@@ -50,15 +50,9 @@ class _AILegalChatScreenState extends ConsumerState<AILegalChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    try {
-      await ref.read(chatProvider.notifier).sendUserMessage(message);
-    } catch (_) {
-      if (!mounted) return;
-      final error = ref.read(chatProvider).error ??
-          'Failed to get an AI response. Please try again.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
-    }
+    // Errors are captured in chatProvider state (no rethrow); the snackbar is
+    // shown by the ref.listen handler in build().
+    await ref.read(chatProvider.notifier).sendUserMessageDebounced(message);
   }
 
   void _scrollToBottom() {
@@ -80,6 +74,11 @@ class _AILegalChatScreenState extends ConsumerState<AILegalChatScreen> {
               next.conversationHistory.length ||
           previous?.isSending != next.isSending) {
         _scrollToBottom();
+      }
+      // Show errors directly from state (sendUserMessage never rethrows).
+      if (next.error != null && next.error != previous?.error) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(next.error!)));
       }
     });
 

@@ -8,12 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:juslegal/core/core.dart';
 import 'package:juslegal/l10n/gen/app_localizations.dart';
 
 import 'providers/locale_provider.dart';
 import 'services/auth_handler.dart';
+import 'services/storage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,11 +73,14 @@ Future<void> main() async {
   }
 
   try {
-    await Hive.initFlutter();
-    await Hive.openBox('cases');
-    await Hive.openBox('settings');
+    final storage = StorageService();
+    await storage.init();
+    await storage.openEncryptedBox<dynamic>('cases');
+    await storage.openEncryptedBox<dynamic>('settings');
+    await storage.openEncryptedBox<dynamic>('chat_history');
+    await storage.openEncryptedBox<dynamic>('user_profile');
   } catch (e, stackTrace) {
-    logger.error('Failed to initialize Hive storage boxes', tag: 'Main', error: e, stackTrace: stackTrace);
+    logger.error('Failed to initialize encrypted local storage', tag: 'Main', error: e, stackTrace: stackTrace);
   }
 
   try {

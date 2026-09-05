@@ -58,8 +58,6 @@ pw.Widget _heading(String value, {double size = 12, bool underline = false}) =>
               decoration: underline ? pw.TextDecoration.underline : null)),
     );
 
-pw.Widget _line() => pw.Divider(thickness: .7);
-
 List<pw.Widget> _personBlock(PersonInfo person) {
   final values = <String>[
     person.fullName,

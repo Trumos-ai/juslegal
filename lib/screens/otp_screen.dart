@@ -25,14 +25,17 @@ class OtpScreen extends ConsumerStatefulWidget {
 }
 
 class _OtpScreenState extends ConsumerState<OtpScreen> {
+  static const int _otpExpirySeconds = 60; // ✅ FIX: Match Firebase timeout
+  
   late final List<FocusNode> _focusNodes;
   late final List<TextEditingController> _controllers;
 
   Timer? _timer;
-  Timer? _debounceTimer;
-  int _secondsRemaining = 30;
+  Timer? _autoSubmitTimer;
+  int _secondsRemaining = _otpExpirySeconds;
   String? _localError;
   bool _isAutoSubmitted = false;
+  bool _isSubmitting = false; // ✅ FIX: Added submission flag
   late String _currentVerificationId;
 
   @override
@@ -51,11 +54,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   }
 
   void _startTimer() {
+    _timer?.cancel(); // ✅ FIX: Always cancel first
     if (!mounted) return;
+    
     setState(() {
-      _secondsRemaining = 30;
+      _secondsRemaining = _otpExpirySeconds;
     });
-    _timer?.cancel();
+    
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -67,6 +72,12 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         });
       } else {
         _timer?.cancel();
+        // ✅ FIX: Show expiry message
+        if (mounted) {
+          setState(() {
+            _localError = AppLocalizations.of(context).otpExpired;
+          });
+        }
       }
     });
   }
@@ -74,7 +85,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    _debounceTimer?.cancel();
+    _autoSubmitTimer?.cancel();
     for (var node in _focusNodes) {
       node.dispose();
     }
@@ -88,12 +99,24 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     return _controllers.map((c) => c.text).join();
   }
 
-  void _clearFields({String? error}) {
-    _debounceTimer?.cancel();
+  // ✅ FIX: Improved clear fields with reset option
+  void _clearFields({String? error, bool resetAll = false}) {
+    _autoSubmitTimer?.cancel();
     _isAutoSubmitted = false;
+    _isSubmitting = false;
+    
+    // Reset all controllers
     for (var controller in _controllers) {
       controller.clear();
     }
+    
+    // Reset timers if needed
+    if (resetAll) {
+      _timer?.cancel();
+      _secondsRemaining = _otpExpirySeconds;
+      _startTimer();
+    }
+    
     if (mounted) {
       setState(() {
         _localError = error;
@@ -102,55 +125,69 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     }
   }
 
+  // ✅ FIX: Fixed auto-submission with proper flags
   void _checkAndSubmit() {
     final otpText = _otp;
-    if (otpText.length == 6 && !_isAutoSubmitted) {
-      _debounceTimer?.cancel();
-      _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-        if (!mounted) return;
-        if (_otp.length == 6 && !_isAutoSubmitted) {
-          _isAutoSubmitted = true;
-          _verifyOtp();
-        }
+    if (otpText.length == 6 && !_isAutoSubmitted && !_isSubmitting) {
+      _autoSubmitTimer?.cancel();
+      _autoSubmitTimer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted || _isSubmitting || _isAutoSubmitted) return;
+        _isAutoSubmitted = true;
+        _verifyOtp();
       });
     }
   }
 
+  // ✅ FIX: Fixed paste functionality with proper field filling
   Future<void> _pasteFromClipboard() async {
+    if (_isSubmitting) return;
+    
     final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
     final text = clipboardData?.text;
     if (text == null || text.trim().isEmpty) return;
 
     final digits = text.replaceAll(RegExp(r'\D'), '');
-    if (digits.length >= 6) {
-      final code = digits.substring(0, 6);
-      for (var i = 0; i < 6; i++) {
-        _controllers[i].text = code[i];
-      }
-      _focusNodes[5].requestFocus();
-      _checkAndSubmit();
-    } else if (digits.isNotEmpty) {
-      for (var i = 0; i < digits.length && i < 6; i++) {
-        _controllers[i].text = digits[i];
-      }
-      if (digits.length < 6) {
-        _focusNodes[digits.length].requestFocus();
-      }
+    if (digits.isEmpty) return;
+
+    // Clear all fields first
+    for (var controller in _controllers) {
+      controller.clear();
     }
+
+    // Fill fields with digits
+    final codeLength = digits.length >= 6 ? 6 : digits.length;
+    for (var i = 0; i < codeLength; i++) {
+      _controllers[i].text = digits[i];
+    }
+
+    // Focus on appropriate field
+    if (codeLength < 6) {
+      _focusNodes[codeLength].requestFocus();
+    } else {
+      _focusNodes[5].requestFocus();
+      // Auto-submit if 6 digits
+      _checkAndSubmit();
+    }
+    
+    setState(() {});
   }
 
+  // ✅ FIX: Added proper submission handling
   Future<void> _verifyOtp() async {
+    if (_isSubmitting) return; // ✅ Prevent concurrent submissions
+    
     final l10n = AppLocalizations.of(context);
     final otpText = _otp;
+    
     if (otpText.length != 6) {
       _clearFields(error: l10n.enterOtpDigits);
       return;
     }
-    if (mounted) {
-      setState(() {
-        _localError = null;
-      });
-    }
+    
+    setState(() {
+      _isSubmitting = true;
+      _localError = null;
+    });
 
     try {
       await ref.read(authProvider.notifier).verifyOTP(
@@ -158,61 +195,113 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
             otpText,
           );
       if (!mounted) return;
+      
+      // ✅ FIX: Show success message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.phoneNumberVerifiedSuccessfully)),
+        SnackBar(
+          content: Text(l10n.phoneNumberVerifiedSuccessfully),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
       );
-      context.go('/home');
+      
+      // ✅ FIX: Navigate after a small delay to show success
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) context.go('/home');
+      });
+      
     } catch (error) {
       if (!mounted) return;
-      final message = ref.read(authProvider).error ?? error.toString();
-      _clearFields(error: message);
+      
+      // ✅ FIX: Reset flags for retry
+      setState(() {
+        _localError = error.toString();
+        _isSubmitting = false;
+        _isAutoSubmitted = false;
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        SnackBar(
+          content: Text(error.toString()),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 3),
+        ),
       );
+      
+      // ✅ FIX: Clear fields for retry
+      _clearFields(error: error.toString());
     }
   }
 
+  // ✅ FIX: Fixed resend with proper cleanup
   Future<void> _resendOtp() async {
-    if (_secondsRemaining > 0) return;
+    if (_secondsRemaining > 0 || _isSubmitting) return;
 
-    _clearFields();
+    final l10n = AppLocalizations.of(context);
+    
+    // ✅ FIX: Clear all fields and reset state
+    _clearFields(resetAll: true);
 
     final fullPhoneNumber = widget.phoneNumber.startsWith('+')
         ? widget.phoneNumber
         : "+91${widget.phoneNumber}";
 
-    await ref.read(authProvider.notifier).verifyPhone(
-      fullPhoneNumber,
-      (newVerificationId) {
-        if (mounted) {
-          setState(() {
-            _currentVerificationId = newVerificationId;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text(AppLocalizations.of(context).otpResentSuccessfully)),
-          );
-          _startTimer();
-        }
-      },
-      (error) {
-        if (mounted) {
-          _clearFields(error: error);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(error)),
-          );
-        }
-      },
-      (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Phone number verified successfully')),
-          );
-          context.go('/home');
-        }
-      },
-    );
+    try {
+      await ref.read(authProvider.notifier).verifyPhone(
+        fullPhoneNumber,
+        (newVerificationId) {
+          if (mounted) {
+            setState(() {
+              _currentVerificationId = newVerificationId;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.otpResentSuccessfully),
+                backgroundColor: Colors.green,
+              ),
+            );
+            _startTimer();
+          }
+        },
+        (error) {
+          if (mounted) {
+            _clearFields(error: error);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(error),
+                backgroundColor: Colors.red.shade700,
+              ),
+            );
+          }
+        },
+        (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.phoneNumberVerifiedSuccessfully),
+                backgroundColor: Colors.green,
+              ),
+            );
+            context.go('/home');
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        _clearFields(error: e.toString());
+      }
+    }
+  }
+
+  // ✅ FIX: Safe phone number display
+  String _getDisplayPhoneNumber() {
+    final phone = widget.phoneNumber;
+    if (phone.startsWith('+91')) {
+      return phone.substring(3);
+    } else if (phone.length == 10) {
+      return phone;
+    }
+    return phone;
   }
 
   @override
@@ -229,7 +318,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
+          onPressed: _isSubmitting ? null : () => context.pop(),
         ),
       ),
       body: SafeArea(
@@ -255,14 +344,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                       ),
                       OtpPasteButton(
                         onPaste: _pasteFromClipboard,
-                        enabled: !isLoading,
+                        enabled: !isLoading && !_isSubmitting,
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    l10n.otpSentTo(
-                        widget.phoneNumber.replaceFirst('+91', '').trim()),
+                    l10n.otpSentTo(_getDisplayPhoneNumber()),
                     style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
@@ -271,7 +359,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // OTP Input Fields
+                  // ✅ FIX: OTP Input Fields with improved UX
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final fields = <Widget>[];
@@ -279,39 +367,79 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                         fields.add(
                           Expanded(
                             child: SizedBox(
-                              height: 56,
-                              child: TextField(
-                                controller: _controllers[index],
-                                focusNode: _focusNodes[index],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                maxLength: 1,
-                                enabled: !isLoading,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(1),
-                                ],
-                                style: GoogleFonts.inter(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                                decoration: const InputDecoration(
-                                  counterText: "",
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                onChanged: (value) {
-                                  if (value.isNotEmpty) {
-                                    if (index < 5) {
-                                      _focusNodes[index + 1].requestFocus();
-                                    }
-                                  } else {
-                                    if (index > 0) {
+                              height: 60,
+                              child: Semantics(
+                                // ✅ FIX: Added accessibility
+                                label: 'OTP input field ${index + 1} of 6',
+                                textField: true,
+                                child: TextField(
+                                  controller: _controllers[index],
+                                  focusNode: _focusNodes[index],
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  maxLength: 1,
+                                  enabled: !isLoading && !_isSubmitting,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                    LengthLimitingTextInputFormatter(1),
+                                  ],
+                                  style: GoogleFonts.inter(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                  decoration: InputDecoration(
+                                    counterText: "",
+                                    contentPadding: EdgeInsets.zero,
+                                    filled: true,
+                                    fillColor: _focusNodes[index].hasFocus 
+                                        ? AppColors.surfaceContainerLow.withValues(alpha: 0.3)
+                                        : Colors.transparent,
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: BorderSide(
+                                        color: _controllers[index].text.isNotEmpty 
+                                            ? AppColors.legalGold 
+                                            : AppColors.outline,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(
+                                        color: AppColors.legalGold,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    errorBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(
+                                        color: Colors.red, 
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  onChanged: (value) {
+                                    // ✅ FIX: Handle backspace properly
+                                    if (value.isEmpty && index > 0) {
                                       _focusNodes[index - 1].requestFocus();
+                                    } else if (value.isNotEmpty) {
+                                      if (index < 5) {
+                                        _focusNodes[index + 1].requestFocus();
+                                      }
+                                      // ✅ FIX: Dismiss keyboard on last digit
+                                      if (index == 5) {
+                                        FocusScope.of(context).unfocus();
+                                      }
                                     }
-                                  }
-                                  _checkAndSubmit();
-                                },
+                                    // Clear error on typing
+                                    if (_localError != null) {
+                                      setState(() {
+                                        _localError = null;
+                                      });
+                                    }
+                                    _checkAndSubmit();
+                                  },
+                                ),
                               ),
                             ),
                           ),
@@ -320,21 +448,35 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                           fields.add(const SizedBox(width: 8));
                         }
                       }
-                      return Row(children: fields);
+                      return FocusScope(
+                        child: FocusTraversalGroup(
+                          child: Row(children: fields),
+                        ),
+                      );
                     },
                   ),
                   const SizedBox(height: 24),
 
-                  // Verify OTP button
+                  // ✅ FIX: Verify OTP button with proper state
                   ElevatedButton(
-                    onPressed: isLoading ? null : _verifyOtp,
+                    onPressed: (isLoading || _isSubmitting) ? null : _verifyOtp,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 52),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
+                      backgroundColor: AppColors.legalGold,
                     ),
-                    child: Text(l10n.verifyOtp),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(l10n.verifyOtp),
                   ),
                   const SizedBox(height: 16),
 
@@ -362,7 +504,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                               ),
                             )
                           : TextButton(
-                              onPressed: isLoading ? null : _resendOtp,
+                              onPressed: (isLoading || _isSubmitting) 
+                                  ? null 
+                                  : _resendOtp,
                               style: TextButton.styleFrom(
                                 foregroundColor: AppColors.legalGold,
                                 padding: const EdgeInsets.symmetric(

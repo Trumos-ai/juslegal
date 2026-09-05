@@ -91,6 +91,8 @@
   "register": "रजिस्टर",
   "yourLegalRightsProtected": "आपके कानूनी अधिकार सुरक्षित हैं",
   "secureAccessPortal": "सुरक्षित एक्सेस पोर्टल",
+  "newToJusLegal": "JusLegal पर नए हैं? ",
+  "footerCopyright": "© JusLegal",
   "continueWith": "जारी रखें",
   "continueWithGoogle": "Google से जारी रखें",
   "continueWithApple": "Apple से जारी रखें",
@@ -136,7 +138,8 @@
       }
     }
   },
-  "resend": "दोबारा भेजें",
+  "resend": "OTP दोबारा भेजें",
+  "otpExpired": "OTP की वैधता समाप्त हो गई है। कृपया एक नया अनुरोध करें।",
   "verifyingOtp": "OTP सत्यापित किया जा रहा है...",
   "enterOtpDigits": "कृपया OTP के सभी 6 अंक दर्ज करें",
   "otpResentSuccessfully": "OTP फिर से सफलतापूर्वक भेजा गया",
@@ -154,10 +157,27 @@
   "pleaseEnterValidEmail": "कृपया एक वैध ईमेल पता दर्ज करें",
   "pleaseEnterYourPassword": "कृपया अपना पासवर्ड दर्ज करें",
   "passwordMustBeAtLeast6Characters": "पासवर्ड कम से कम 6 वर्णों का होना चाहिए",
+  "passwordStrengthRequirements": "पासवर्ड कम से कम 8 वर्णों का होना चाहिए और उसमें बड़े अक्षर, छोटे अक्षर, संख्या और विशेष वर्ण शामिल होना चाहिए।",
   "pleaseConfirmYourPassword": "कृपया अपने पासवर्ड की पुष्टि करें",
   "passwordsDoNotMatch": "पासवर्ड मेल नहीं खाते",
   "loginSuccessful": "लॉगिन सफल!",
   "accountCreatedSuccessfully": "खाता सफलतापूर्वक बनाया गया!",
+  "emailVerificationRequired": "साइन इन करने से पहले कृपया अपना ईमेल सत्यापित करें।",
+  "verifyYourEmail": "अपना ईमेल सत्यापित करें",
+  "verificationEmailSent": "हमने {email} पर सत्यापन लिंक भेजा है।",
+  "@verificationEmailSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "checkVerification": "मैंने अपना ईमेल सत्यापित कर लिया है",
+  "resendVerificationEmail": "सत्यापन ईमेल फिर से भेजें",
+  "verificationEmailResent": "सत्यापन ईमेल फिर से भेजा गया।",
+  "emailVerifiedSuccessfully": "ईमेल सफलतापूर्वक सत्यापित हुआ!",
+  "emailNotVerifiedYet": "आपका ईमेल अभी तक सत्यापित नहीं हुआ है।",
+  "sending": "भेजा जा रहा है...",
   "passwordResetEmailSent": "पासवर्ड रीसेट ईमेल {email} पर भेजा गया",
   "@passwordResetEmailSent": {
     "placeholders": {
@@ -249,5 +269,14 @@
 
   "serviceUnavailable": "सेवा उपलब्ध नहीं है",
   "signInFeaturesTemporarilyUnavailable": "साइन-इन सुविधाएँ अस्थायी रूप से उपलब्ध नहीं हैं। कृपया बाद में फिर से प्रयास करें।",
-  "privacyPolicyBody": "यह पृष्ठ बताता है कि JusLegal ऐप का उपयोग करते समय आपकी जानकारी को कैसे संभालता है।"
+  "privacyPolicyBody": "यह पृष्ठ बताता है कि JusLegal ऐप का उपयोग करते समय आपकी जानकारी को कैसे संभालता है।",
+  "networkError": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जाँचें और फिर प्रयास करें।",
+  "invalidCredentials": "ईमेल या पासवर्ड अमान्य है।",
+  "userNotFound": "इन विवरणों से कोई खाता नहीं मिला।",
+  "emailAlreadyInUse": "इस ईमेल से पहले से एक खाता मौजूद है।",
+  "weakPassword": "कृपया अधिक मजबूत पासवर्ड चुनें।",
+  "sessionExpired": "आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।",
+  "invalidPhoneNumber": "कृपया एक वैध फोन नंबर दर्ज करें।",
+  "invalidOtp": "सत्यापन कोड अमान्य है।",
+  "otpFailed": "OTP सत्यापन विफल हुआ। कृपया फिर से प्रयास करें।"
 }

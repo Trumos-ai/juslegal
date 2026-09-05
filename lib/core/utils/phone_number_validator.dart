@@ -4,6 +4,9 @@ import '../../services/auth_exceptions.dart';
 class PhoneNumberValidator {
   PhoneNumberValidator._();
 
+  // India-specific constants
+  static const int _indianPhoneLength = 10;
+  
   static String normalize(String phoneNumber) {
     final compact = phoneNumber.trim().replaceAll(RegExp(r'[\s()-]'), '');
     final countryCode = AppConfig.defaultCountryCode.trim();
@@ -13,11 +16,11 @@ class PhoneNumberValidator {
     if (compact.startsWith('+')) {
       return '+$digits';
     }
-    if (digits.startsWith(countryDigits) &&
-        digits.length == countryDigits.length + 10) {
+    if (digits.startsWith(countryDigits) && 
+        digits.length == countryDigits.length + _indianPhoneLength) {
       return '+$digits';
     }
-    if (digits.length == 10) {
+    if (digits.length == _indianPhoneLength) {
       return '$countryCode$digits';
     }
     return '+$digits';
@@ -25,13 +28,12 @@ class PhoneNumberValidator {
 
   static bool isValid(String phoneNumber) {
     final normalized = normalize(phoneNumber);
-    final countryDigits =
-        AppConfig.defaultCountryCode.replaceAll(RegExp(r'\D'), '');
+    final countryDigits = AppConfig.defaultCountryCode.replaceAll(RegExp(r'\D'), '');
     final digits = normalized.replaceAll(RegExp(r'\D'), '');
 
     return normalized.startsWith('+$countryDigits') &&
-        digits.length == countryDigits.length + 10 &&
-        digits.substring(countryDigits.length).startsWith(RegExp(r'[6-9]'));
+        digits.length == countryDigits.length + _indianPhoneLength &&
+        RegExp(r'^[6-9]').hasMatch(digits.substring(countryDigits.length));
   }
 
   static String normalizeOrThrow(String phoneNumber) {

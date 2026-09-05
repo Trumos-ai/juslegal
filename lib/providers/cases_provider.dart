@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/saved_case_model.dart';
 import '../core/services/analytics_service.dart';
+import '../services/storage_service.dart';
 
 class CasesNotifier extends Notifier<List<SavedCaseModel>> {
   @override
@@ -11,7 +12,7 @@ class CasesNotifier extends Notifier<List<SavedCaseModel>> {
     return [];
   }
 
-  Future<Box> get _box async => Hive.openBox('cases');
+  Future<Box> get _box async => StorageService().openEncryptedBox<dynamic>('cases');
 
   Future<void> _load() async {
     final box = await _box;

@@ -632,6 +632,18 @@ abstract class AppLocalizations {
   /// **'Secure Access Portal'**
   String get secureAccessPortal;
 
+  /// No description provided for @newToJusLegal.
+  ///
+  /// In en, this message translates to:
+  /// **'New to JusLegal? '**
+  String get newToJusLegal;
+
+  /// No description provided for @footerCopyright.
+  ///
+  /// In en, this message translates to:
+  /// **'© JusLegal'**
+  String get footerCopyright;
+
   /// No description provided for @continueWith.
   ///
   /// In en, this message translates to:
@@ -773,8 +785,14 @@ abstract class AppLocalizations {
   /// No description provided for @resend.
   ///
   /// In en, this message translates to:
-  /// **'Resend'**
+  /// **'Resend OTP'**
   String get resend;
+
+  /// No description provided for @otpExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'OTP has expired. Please request a new one.'**
+  String get otpExpired;
 
   /// No description provided for @verifyingOtp.
   ///
@@ -872,6 +890,12 @@ abstract class AppLocalizations {
   /// **'Password must be at least 6 characters'**
   String get passwordMustBeAtLeast6Characters;
 
+  /// No description provided for @passwordStrengthRequirements.
+  ///
+  /// In en, this message translates to:
+  /// **'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.'**
+  String get passwordStrengthRequirements;
+
   /// No description provided for @pleaseConfirmYourPassword.
   ///
   /// In en, this message translates to:
@@ -895,6 +919,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Account created successfully!'**
   String get accountCreatedSuccessfully;
+
+  /// No description provided for @emailVerificationRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your email address before signing in.'**
+  String get emailVerificationRequired;
+
+  /// No description provided for @verifyYourEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your email'**
+  String get verifyYourEmail;
+
+  /// No description provided for @verificationEmailSent.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a verification link to {email}.'**
+  String verificationEmailSent(String email);
+
+  /// No description provided for @checkVerification.
+  ///
+  /// In en, this message translates to:
+  /// **'I verified my email'**
+  String get checkVerification;
+
+  /// No description provided for @resendVerificationEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend verification email'**
+  String get resendVerificationEmail;
+
+  /// No description provided for @verificationEmailResent.
+  ///
+  /// In en, this message translates to:
+  /// **'Verification email sent again.'**
+  String get verificationEmailResent;
+
+  /// No description provided for @emailVerifiedSuccessfully.
+  ///
+  /// In en, this message translates to:
+  /// **'Email verified successfully!'**
+  String get emailVerifiedSuccessfully;
+
+  /// No description provided for @emailNotVerifiedYet.
+  ///
+  /// In en, this message translates to:
+  /// **'Your email is not verified yet.'**
+  String get emailNotVerifiedYet;
+
+  /// No description provided for @sending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending...'**
+  String get sending;
 
   /// No description provided for @passwordResetEmailSent.
   ///
@@ -1339,6 +1417,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Too many requests. Please wait a moment and try again.'**
   String get tooManyRequests;
+
+  /// No description provided for @networkError.
+  ///
+  /// In en, this message translates to:
+  /// **'Network error. Please check your connection and try again.'**
+  String get networkError;
+
+  /// No description provided for @invalidCredentials.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid email or password.'**
+  String get invalidCredentials;
+
+  /// No description provided for @userNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No account was found with these details.'**
+  String get userNotFound;
+
+  /// No description provided for @emailAlreadyInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'An account already exists with this email.'**
+  String get emailAlreadyInUse;
+
+  /// No description provided for @weakPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Please choose a stronger password.'**
+  String get weakPassword;
+
+  /// No description provided for @sessionExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Your session expired. Please sign in again.'**
+  String get sessionExpired;
+
+  /// No description provided for @invalidPhoneNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a valid phone number.'**
+  String get invalidPhoneNumber;
+
+  /// No description provided for @invalidOtp.
+  ///
+  /// In en, this message translates to:
+  /// **'The verification code is invalid.'**
+  String get invalidOtp;
+
+  /// No description provided for @otpFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verification failed. Please try again.'**
+  String get otpFailed;
 
   /// No description provided for @configurationError.
   ///

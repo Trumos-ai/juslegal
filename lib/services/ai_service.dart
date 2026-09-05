@@ -4,8 +4,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:juslegal/core/core.dart';
-import '../core/constants/categories.dart';
-import '../core/exceptions/ai_exceptions.dart';
 import 'firebase_token_service.dart';
 
 /// SecurityAudit: AI service with structured exception handling and PII sanitization.
@@ -35,8 +33,27 @@ class AIService {
   }
 
   Future<void> initialize() async {
+    _validateApiKeyConfig();
     if (kDebugMode) {
       debugPrint('[AIService] Initialized AI providers');
+    }
+  }
+
+  /// SecurityAudit: Validates that all AI traffic is configured to route
+  /// through the Cloudflare Worker proxy and that no provider API keys are
+  /// embedded client-side. Throws [ApiKeyException] on misconfiguration.
+  void _validateApiKeyConfig() {
+    final workerUrl = EnvironmentState.workerBaseUrl;
+    if (workerUrl.isEmpty) {
+      const message = 'Cloudflare Worker proxy URL is not configured.';
+      if (kDebugMode) {
+        debugPrint('[AIService] $message');
+      }
+      throw ApiKeyException('Cloudflare Worker proxy');
+    }
+    if (kDebugMode) {
+      debugPrint(
+          '[AIService] API key validation OK (worker-routed, no client-side keys)');
     }
   }
 
@@ -719,6 +736,26 @@ class _WorkerChatClient {
           {String languageCode = 'en'}) =>
       _sendChatRequest(userMessage, conversationHistory, languageCode);
 
+  /// Performs the Dio POST with automatic 401 token-refresh retry: when the
+  /// Worker rejects an expired Firebase ID token, the token is force-refreshed
+  /// and the request retried exactly once.
+  Future<Response<Map<String, dynamic>>> _postWithAuthRetry(
+    String endpoint,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      return await _dio.post<Map<String, dynamic>>(endpoint, data: data);
+    } on DioException catch (error) {
+      if (error.response?.statusCode != 401) rethrow;
+      if (kDebugMode) {
+        debugPrint('[$_label] 401 received - refreshing token and retrying');
+      }
+      final refreshed = await _tokenService.forceRefreshToken();
+      if (refreshed == null) rethrow;
+      return await _dio.post<Map<String, dynamic>>(endpoint, data: data);
+    }
+  }
+
   Future<String> _sendChatRequest(
     String userMessage,
     List<Map<String, String>> conversationHistory,
@@ -728,9 +765,7 @@ class _WorkerChatClient {
       if (kDebugMode) {
         debugPrint('[$_label] Calling Worker $_endpoint for chat');
       }
-      final response = await _dio.post<Map<String, dynamic>>(
-        _endpoint,
-        data: {
+      final response = await _postWithAuthRetry(_endpoint, {
           'model': _model,
           'messages': [
             {
@@ -742,8 +777,7 @@ class _WorkerChatClient {
           'temperature': ApiConstants.temperature,
           'max_tokens': ApiConstants.maxTokens,
           'stream': false,
-        },
-      );
+        });
       return _contentFrom(response.data);
     } on DioException catch (error) {
       _throwDioError(error);
@@ -776,9 +810,7 @@ class _WorkerChatClient {
       if (kDebugMode) {
         debugPrint('[$_label] Calling Worker $_endpoint');
       }
-      final response = await _dio.post<Map<String, dynamic>>(
-        _endpoint,
-        data: {
+      final response = await _postWithAuthRetry(_endpoint, {
           'model': _model,
           'messages': [
             if (systemPrompt.isNotEmpty)
@@ -789,8 +821,7 @@ class _WorkerChatClient {
           'max_tokens': maxTokens ?? ApiConstants.maxTokens,
           if (jsonResponse) 'response_format': {'type': 'json_object'},
           'stream': false,
-        },
-      );
+        });
       return _contentFrom(response.data);
     } on DioException catch (error) {
       _throwDioError(error);

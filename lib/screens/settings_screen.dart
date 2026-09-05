@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:juslegal/core/core.dart';
-import '../core/services/analytics_service.dart';
 import '../providers/locale_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -648,6 +647,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
               ),
+              ListTile(
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('Privacy Preferences'),
+                subtitle: const Text(
+                  'Manage analytics and data collection',
+                  style: TextStyle(fontSize: 12),
+                ),
+                onTap: () => context.push('/home/privacy-consent'),
+                trailing: Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: AppColors.textSecondary.withValues(alpha: 0.6),
+                ),
+              ),
+              const Divider(indent: 16, endIndent: 16),
               ListTile(
                 title: Text(l10n.privacyPolicy),
                 onTap: () => _launchURL(AppConfig.privacyPolicyUrl),
