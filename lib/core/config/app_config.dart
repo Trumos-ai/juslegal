@@ -30,18 +30,7 @@ part 'app_config.environment.dart';
 // ignore: constant_identifier_names
 const String WORKER_BASE_URL = String.fromEnvironment(
   'JUSLEGAL_AI_PROXY_BASE_URL',
-  defaultValue: 'https://juslegal-ai-proxy.juslegal-ai.workers.dev',
-);
-
-// ignore: constant_identifier_names
-const String OPENROUTER_MODEL = 'openrouter/auto';
-
-// Keep this as a build-time setting so it can be changed when a Groq model is
-// retired, without putting provider credentials in the app.
-// ignore: constant_identifier_names
-const String GROQ_MODEL = String.fromEnvironment(
-  'GROQ_MODEL',
-  defaultValue: 'openai/gpt-oss-20b',
+  defaultValue: 'https://juslegal-ai-proxy.juslegalai.workers.dev',
 );
 
 class ApiConstants {
@@ -57,13 +46,19 @@ class ApiConstants {
   static const Duration receiveTimeout = Duration(seconds: 30);
 }
 
-/// Backward-compatible aliases for legacy callers.
-/// New service code reads the shared API constants directly.
-class AIConstants {
-  static const String openRouterModel = OPENROUTER_MODEL;
-  static const String groqModel = GROQ_MODEL;
-  static const int maxTokens = ApiConstants.maxTokens;
-  static const double temperature = ApiConstants.temperature;
+/// Client-side mirror of the Worker request envelope limits.
+///
+/// The Worker is authoritative and selects the upstream model based on the
+/// endpoint. These values only keep the app from creating requests that the
+/// Worker would reject; matching values must be updated alongside
+/// `juslegal-ai-proxy/src/index.ts`.
+class WorkerAiRequestLimits {
+  static const int maxMessages = 20;
+  static const int maxMessageContentChars = 20000;
+  static const int maxTotalMessageChars = 60000;
+  static const int maxTokens = 2400;
+  static const double minTemperature = 0;
+  static const double maxTemperature = 1;
 }
 
 const String jusLegalChatSystemPrompt =

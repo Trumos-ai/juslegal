@@ -230,30 +230,67 @@ async function readRequestBody(request: Request): Promise<Uint8Array | null> {
 	return body;
 }
 
-function sanitizeUpstreamPayload(raw: unknown, expectedModel: string): Record<string, unknown> | null {
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+type PayloadValidationResult =
+	| { payload: Record<string, unknown>; reason: null }
+	| { payload: null; reason: string };
+
+export function parseRequestJson(value: string): unknown | null {
+	try {
+		return JSON.parse(value) as unknown;
+	} catch {
+		return null;
+	}
+}
+
+export function sanitizeUpstreamPayload(raw: unknown, expectedModel: string): PayloadValidationResult {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		return { payload: null, reason: "invalid_json_object" };
+	}
 	const input = raw as Record<string, unknown>;
-	if (input.model !== expectedModel) return null;
-	if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > MAX_MESSAGES) return null;
+	// The browser deliberately does not choose a model. If a legacy client sends
+	// one, it is ignored; the endpoint's server-side configuration below remains
+	// the sole authority for the upstream model.
+	if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > MAX_MESSAGES) {
+		return { payload: null, reason: "messages_count_invalid" };
+	}
 
 	let totalChars = 0;
 	const messages: Array<{ role: string; content: string }> = [];
 	for (const item of input.messages) {
-		if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+		if (!item || typeof item !== "object" || Array.isArray(item)) {
+			return { payload: null, reason: "message_invalid" };
+		}
 		const message = item as Record<string, unknown>;
 		if (!['system', 'user', 'assistant'].includes(String(message.role)) || typeof message.content !== "string") {
-			return null;
+			return { payload: null, reason: "message_role_or_content_invalid" };
 		}
-		if (message.content.length > MAX_MESSAGE_CONTENT_CHARS) return null;
+		if (message.content.length > MAX_MESSAGE_CONTENT_CHARS) {
+			return { payload: null, reason: "message_content_too_long" };
+		}
 		totalChars += message.content.length;
-		if (totalChars > MAX_TOTAL_MESSAGE_CHARS) return null;
+		if (totalChars > MAX_TOTAL_MESSAGE_CHARS) {
+			return { payload: null, reason: "messages_content_too_long" };
+		}
 		messages.push({ role: String(message.role), content: message.content });
 	}
 
 	const temperature = typeof input.temperature === "number" ? input.temperature : 0.2;
-	if (!Number.isFinite(temperature) || temperature < 0 || temperature > 1) return null;
+	if (!Number.isFinite(temperature) || temperature < 0 || temperature > 1) {
+		return { payload: null, reason: "temperature_invalid" };
+	}
 	const maxTokens = typeof input.max_tokens === "number" ? input.max_tokens : 1200;
-	if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > MAX_TOKENS) return null;
+	if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > MAX_TOKENS) {
+		return { payload: null, reason: "max_tokens_invalid" };
+	}
+	if (
+		"response_format" in input &&
+		(!input.response_format ||
+			typeof input.response_format !== "object" ||
+			Array.isArray(input.response_format) ||
+			(input.response_format as Record<string, unknown>).type !== "json_object")
+	) {
+		return { payload: null, reason: "response_format_invalid" };
+	}
 
 	const output: Record<string, unknown> = {
 		model: expectedModel,
@@ -269,7 +306,7 @@ function sanitizeUpstreamPayload(raw: unknown, expectedModel: string): Record<st
 	) {
 		output.response_format = { type: "json_object" };
 	}
-	return output;
+	return { payload: output, reason: null };
 }
 
 export default {
@@ -306,22 +343,34 @@ export default {
 			const body = await readRequestBody(request);
 			if (body === null) return jsonResponse({ error: "Request body too large" }, 413, cors);
 
-			const raw = decodeJson<unknown>(new TextDecoder().decode(body));
-			const payload = sanitizeUpstreamPayload(raw, expectedModel);
-			if (!payload) return jsonResponse({ error: "Invalid AI request payload" }, 400, cors);
+			// JWT segments are base64url-encoded, but HTTP JSON bodies are plain
+			// JSON. Using the JWT decoder here made every normal Flutter request
+			// parse as null and therefore return HTTP 400.
+			const raw = parseRequestJson(new TextDecoder().decode(body));
+			const validation = sanitizeUpstreamPayload(raw, expectedModel);
 
+			if (!validation.payload) {
+				return jsonResponse(
+					{
+						error: "Invalid AI request payload",
+						reason: validation.reason,
+					},
+					400,
+					cors,
+				);
+			}
 			const upstreamResponse = await fetch(
-			pathname === "/callGroq"
-				? "https://api.groq.com/openai/v1/chat/completions"
-				: "https://openrouter.ai/api/v1/chat/completions",
-			{
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${pathname === "/callGroq" ? env.GROQ_API_KEY : env.OPENROUTER_API_KEY}`,
-					"Content-Type": "application/json",
+				pathname === "/callGroq"
+					? "https://api.groq.com/openai/v1/chat/completions"
+					: "https://openrouter.ai/api/v1/chat/completions",
+				{
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${pathname === "/callGroq" ? env.GROQ_API_KEY : env.OPENROUTER_API_KEY}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(validation.payload),
 				},
-				body: JSON.stringify(payload),
-			},
 			);
 
 			if (!upstreamResponse.ok) {

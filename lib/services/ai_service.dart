@@ -684,17 +684,6 @@ class _WorkerChatClient {
     }
   }
 
-  String get _model {
-    switch (provider) {
-      case AiProvider.groq:
-        return GROQ_MODEL;
-      case AiProvider.openrouter:
-        return OPENROUTER_MODEL;
-      case AiProvider.siliconflow:
-        return 'Qwen/Qwen2.5-7B-Instruct';
-    }
-  }
-
   String get _label {
     switch (provider) {
       case AiProvider.groq:
@@ -715,7 +704,6 @@ class _WorkerChatClient {
     try {
       final parsed =
           jsonDecode(_stripCodeFence(content)) as Map<String, dynamic>;
-      parsed['_model'] = _model;
       parsed['_provider'] = provider.name;
       return parsed;
     } on FormatException catch (error) {
@@ -765,19 +753,19 @@ class _WorkerChatClient {
       if (kDebugMode) {
         debugPrint('[$_label] Calling Worker $_endpoint for chat');
       }
-      final response = await _postWithAuthRetry(_endpoint, {
-          'model': _model,
-          'messages': [
+      final response = await _postWithAuthRetry(
+        _endpoint,
+        _requestPayload(
+          _boundedMessages([
             {
               'role': 'system',
               'content': chatSystemPromptForLanguage(languageCode),
             },
             ..._historyWithCurrentMessage(userMessage, conversationHistory),
-          ],
-          'temperature': ApiConstants.temperature,
-          'max_tokens': ApiConstants.maxTokens,
-          'stream': false,
-        });
+          ]),
+          maxTokens: ApiConstants.maxTokens,
+        ),
+      );
       return _contentFrom(response.data);
     } on DioException catch (error) {
       _throwDioError(error);
@@ -789,8 +777,12 @@ class _WorkerChatClient {
     List<Map<String, String>> history,
   ) {
     final messages = history
-        .where((message) => message['role'] != 'system')
-        .map(Map<String, String>.from)
+        .where((message) =>
+            message['role'] == 'user' || message['role'] == 'assistant')
+        .map((message) => <String, String>{
+              'role': message['role']!,
+              'content': message['content'] ?? '',
+            })
         .toList();
     if (messages.isEmpty ||
         messages.last['role'] != 'user' ||
@@ -810,18 +802,18 @@ class _WorkerChatClient {
       if (kDebugMode) {
         debugPrint('[$_label] Calling Worker $_endpoint');
       }
-      final response = await _postWithAuthRetry(_endpoint, {
-          'model': _model,
-          'messages': [
+      final response = await _postWithAuthRetry(
+        _endpoint,
+        _requestPayload(
+          _boundedMessages([
             if (systemPrompt.isNotEmpty)
               {'role': 'system', 'content': systemPrompt},
             {'role': 'user', 'content': prompt},
-          ],
-          'temperature': ApiConstants.temperature,
-          'max_tokens': maxTokens ?? ApiConstants.maxTokens,
-          if (jsonResponse) 'response_format': {'type': 'json_object'},
-          'stream': false,
-        });
+          ]),
+          maxTokens: maxTokens ?? ApiConstants.maxTokens,
+          jsonResponse: jsonResponse,
+        ),
+      );
       return _contentFrom(response.data);
     } on DioException catch (error) {
       _throwDioError(error);
@@ -845,6 +837,76 @@ class _WorkerChatClient {
     return content;
   }
 
+  /// Shapes requests to the public Worker contract. Models are intentionally
+  /// omitted: the Worker selects the allow-listed model from the endpoint.
+  Map<String, dynamic> _requestPayload(
+    List<Map<String, String>> messages, {
+    required int maxTokens,
+    bool jsonResponse = false,
+  }) =>
+      {
+        'messages': messages,
+        'temperature': _validatedTemperature(ApiConstants.temperature),
+        'max_tokens': _validatedMaxTokens(maxTokens),
+        if (jsonResponse) 'response_format': {'type': 'json_object'},
+        'stream': false,
+      };
+
+  double _validatedTemperature(double value) {
+    if (!value.isFinite ||
+        value < WorkerAiRequestLimits.minTemperature ||
+        value > WorkerAiRequestLimits.maxTemperature) {
+      throw StateError('Configured AI temperature is outside Worker limits');
+    }
+    return value;
+  }
+
+  int _validatedMaxTokens(int value) {
+    if (value < 1 || value > WorkerAiRequestLimits.maxTokens) {
+      throw StateError('Configured AI max_tokens is outside Worker limits');
+    }
+    return value;
+  }
+
+  /// Preserves the system message and newest conversation context while
+  /// deterministically fitting the Worker message and character limits.
+  List<Map<String, String>> _boundedMessages(
+    List<Map<String, String>> input,
+  ) {
+    final system = input.where((message) => message['role'] == 'system').take(1);
+    final conversation = input
+        .where((message) => message['role'] == 'user' || message['role'] == 'assistant')
+        .toList();
+    final result = <Map<String, String>>[];
+    var remainingChars = WorkerAiRequestLimits.maxTotalMessageChars;
+
+    for (final message in system) {
+      final content = _truncate(message['content'] ?? '', remainingChars);
+      result.add({'role': 'system', 'content': content});
+      remainingChars -= content.length;
+    }
+
+    final newestFirst = <Map<String, String>>[];
+    for (final message in conversation.reversed) {
+      if (newestFirst.length >= WorkerAiRequestLimits.maxMessages - result.length ||
+          remainingChars <= 0) {
+        break;
+      }
+      final content = _truncate(message['content'] ?? '', remainingChars);
+      newestFirst.add({'role': message['role']!, 'content': content});
+      remainingChars -= content.length;
+    }
+    result.addAll(newestFirst.reversed);
+    return result;
+  }
+
+  String _truncate(String value, int remainingChars) {
+    final maximum = remainingChars < WorkerAiRequestLimits.maxMessageContentChars
+        ? remainingChars
+        : WorkerAiRequestLimits.maxMessageContentChars;
+    return value.length <= maximum ? value : value.substring(0, maximum);
+  }
+
   String _stripCodeFence(String value) {
     var result = value.trim();
     if (result.startsWith('```json')) result = result.substring(7);
@@ -865,6 +927,16 @@ class _WorkerChatClient {
     if (statusCode != null) {
       if (kDebugMode) {
         debugPrint('[$_label] Worker returned HTTP $statusCode');
+        final body = error.response?.data;
+        if (body is Map) {
+          final safeError = body['error'];
+          final safeReason = body['reason'];
+          if (safeError is String || safeReason is String) {
+            debugPrint('[$_label] Worker error: '
+                '${safeError is String ? safeError : 'unknown'} '
+                '(reason: ${safeReason is String ? safeReason : 'none'})');
+          }
+        }
       }
       throw NetworkException('$_label request failed (HTTP $statusCode)');
     }
