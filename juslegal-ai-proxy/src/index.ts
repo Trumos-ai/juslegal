@@ -328,11 +328,14 @@ export default {
 		}
 
 		const { pathname } = new URL(request.url);
+
+		// ✅ FIXED: Use actual free models
 		const expectedModel = pathname === "/callGroq"
-			? "openai/gpt-oss-20b"
+			? "mixtral-8x7b-32768"  // Groq free model
 			: pathname === "/callOpenRouter"
-				? "openrouter/auto"
+				? "meta-llama/llama-2-7b-chat"  // OpenRouter free model
 				: null;
+
 		if (!expectedModel) return jsonResponse({ error: "Not found" }, 404, cors);
 
 		if (!(await hasValidBearerToken(request, env))) {
