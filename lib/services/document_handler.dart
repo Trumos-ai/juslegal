@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/form_field_model.dart';
 import '../models/form_template_model.dart';
 import 'package:juslegal/core/core.dart';
+import '../providers/locale_provider.dart';
 import 'ai_service.dart';
 
 class DocumentCreationService {
@@ -60,6 +62,7 @@ class DocumentCreationService {
   Future<GeneratedFormContent> buildAIEnhancedForm({
     required FormTemplateModel template,
     required Map<String, String> values,
+    String languageCode = 'en',
   }) async {
     final filledText = buildFilledFormText(
       template: template,
@@ -72,16 +75,21 @@ class DocumentCreationService {
     }).join('\n');
 
     try {
-      final result = await _aiService.generateDocumentFields(
+      // Use the new text generation method that handles plain text responses
+      final generatedText = await _aiService.generateDocument(
         documentType: template.id,
         fieldsText: fieldsText,
+        languageCode: languageCode,
       );
-      final text = result['document_text']?.toString().trim();
+
       return GeneratedFormContent(
-        text: text == null || text.isEmpty ? filledText : text,
-        fields: result,
+        text: generatedText.isEmpty ? filledText : generatedText,
+        fields: {},
       );
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[DocumentCreationService] AI generation failed: $e');
+      }
       return GeneratedFormContent(text: filledText);
     }
   }
@@ -211,6 +219,8 @@ class DocumentCreationNotifier extends Notifier<DocumentCreationState> {
     return const DocumentCreationState();
   }
 
+  String get _languageCode => ref.read(localeProvider).languageCode;
+
   // Select a form template
   void selectForm(FormTemplateModel form) {
     state = DocumentCreationState(
@@ -274,6 +284,7 @@ class DocumentCreationNotifier extends Notifier<DocumentCreationState> {
         result = await _service.buildAIEnhancedForm(
           template: state.selectedForm!,
           values: state.fieldValues,
+          languageCode: _languageCode,
         );
       } else {
         result = GeneratedFormContent(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:juslegal/core/core.dart';
+import '../providers/locale_provider.dart';
 import '../services/document_handler.dart';
 import '../services/pdf/legal_pdf_models.dart';
 import '../services/pdf/legal_pdf_service.dart';
@@ -23,6 +24,8 @@ class DocumentCreationScreen extends ConsumerStatefulWidget {
 class _DocumentCreationScreenState
     extends ConsumerState<DocumentCreationScreen> {
   final _scrollController = ScrollController();
+  bool _generationDialogPending = false;
+  bool _generationDialogVisible = false;
 
   @override
   void dispose() {
@@ -32,6 +35,46 @@ class _DocumentCreationScreenState
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<DocumentCreationState>(documentCreationProvider,
+        (previous, next) {
+      if (!mounted) return;
+
+      if (next.isLoading && !(previous?.isLoading ?? false)) {
+        _generationDialogPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_generationDialogPending || _generationDialogVisible) {
+            return;
+          }
+
+          _generationDialogPending = false;
+          _generationDialogVisible = true;
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const AlertDialog(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                  SizedBox(width: 20),
+                  Expanded(child: Text('Generating your document...')),
+                ],
+              ),
+            ),
+          );
+        });
+      } else if (!next.isLoading && _generationDialogVisible) {
+        _generationDialogPending = false;
+        _generationDialogVisible = false;
+        Navigator.of(context, rootNavigator: true).pop();
+      } else if (!next.isLoading) {
+        _generationDialogPending = false;
+      }
+    });
+
     final state = ref.watch(documentCreationProvider);
     final notifier = ref.read(documentCreationProvider.notifier);
 
@@ -204,6 +247,57 @@ class _DocumentCreationScreenState
                 value: state.useAI,
                 onChanged: (v) => notifier.toggleAI(v),
                 activeThumbColor: AppColors.legalGold,
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Language toggle
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceBright,
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.language_rounded,
+                  color: AppColors.legalGold, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Language',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    Text(
+                      'Generate document in Hindi or English',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Consumer(
+                builder: (context, ref, _) {
+                  final locale = ref.watch(localeProvider);
+                  final isHindi = locale.languageCode == 'hi';
+                  return Switch(
+                    value: isHindi,
+                    onChanged: (_) => ref.read(localeProvider.notifier).toggle(),
+                    activeThumbColor: AppColors.legalGold,
+                  );
+                },
               ),
             ],
           ),

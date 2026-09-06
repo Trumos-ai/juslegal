@@ -353,6 +353,11 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     String languageCode = 'en',
   }) async {
     final type = documentType.toLowerCase();
+    if (kDebugMode) {
+      debugPrint('[AIService] generateDocumentFields - documentType: $documentType');
+      debugPrint('[AIService] generateDocumentFields - type (lowercase): $type');
+      debugPrint('[AIService] generateDocumentFields - fieldsText: $fieldsText');
+    }
     final schema = type.contains('consumer') || type.contains('complaint')
         ? '''{
   "consumer_status_reason": "...",
@@ -384,7 +389,18 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
   "purpose": "...",
   "statements": ["stmt1", "stmt2", "stmt3"]
 }'''
-                    : '''{
+                    : type.contains('rent')
+                        ? '''{
+  "document_text": "complete ready-to-print rent agreement with all standard clauses",
+  "landlord_name": "...",
+  "tenant_name": "...",
+  "property_address": "...",
+  "monthly_rent": "...",
+  "lease_duration": "...",
+  "start_date": "...",
+  "security_deposit": "..."
+}'''
+                        : '''{
   "document_text": "complete ready-to-print legal document",
   "structured_fields": { "field_key": "normalized value" }
 }''';
@@ -663,6 +679,42 @@ Keep legal terms like RTI, PIL, FIR, IPC, CPC, CrPC, and act names in English wh
       }
       throw Exception('All AI providers failed for text generation: $e');
     }
+  }
+
+  /// Generate a legal document as plain text (not JSON)
+  /// This method is used for document generation where we want the full document text
+  Future<String> generateDocument({
+    required String documentType,
+    required String fieldsText,
+    String languageCode = 'en',
+  }) async {
+    final language = languageCode == 'hi' ? 'Hindi' : 'English';
+    
+    final systemPrompt = '''You are a professional Indian legal document drafter.
+Your task is to generate a complete, ready-to-print legal document based on the provided information.
+
+STRICT RULES:
+1. Use ONLY the information provided - do not hallucinate or assume facts
+2. Generate the complete document with proper formatting, structure, and legal language
+3. Include all standard sections: header, parties, body, conclusion, signature areas
+4. Use formal, professional legal language appropriate for Indian law
+5. Ensure the document is ready to print and use
+6. Respond with ONLY the document text - no explanations, no preamble, no notes
+7. Output in $language language
+
+Generate a complete $documentType document.''';
+
+    final userPrompt = '''Generate a complete $documentType document with the following information:
+
+$fieldsText
+
+Output the complete document in $language language.''';
+
+    return await generateText(
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt,
+      temperature: 0.3,
+    );
   }
 }
 
