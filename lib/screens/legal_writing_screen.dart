@@ -42,6 +42,17 @@ class _LegalWritingScreenState extends ConsumerState<LegalWritingScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _resultController.addListener(() {
+      final state = ref.read(legalWritingProvider);
+      if (state.result != _resultController.text) {
+        ref.read(legalWritingProvider.notifier).updateResult(_resultController.text);
+      }
+    });
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncControllersWithState();
@@ -90,9 +101,11 @@ class _LegalWritingScreenState extends ConsumerState<LegalWritingScreen> {
 
   bool _formValid(LegalWritingState state) {
     if (state.type == null) return false;
-    final firstField = state.type!.requiredFields.first;
-    final firstValue = state.fieldValues[firstField] ?? '';
-    return firstValue.trim().isNotEmpty;
+    for (final field in state.type!.requiredFields) {
+      final value = state.fieldValues[field] ?? '';
+      if (value.trim().isEmpty) return false;
+    }
+    return true;
   }
 
   String _buildPrompt(LegalWritingState state) {
@@ -138,22 +151,23 @@ Now write the complete ${type.label}:
     ref.read(legalWritingProvider.notifier).setLoading(true);
 
     await Future.delayed(const Duration(milliseconds: 100));
-    if (_scrollController.hasClients) {
+    if (mounted && _scrollController.hasClients) {
       _scrollController.animateTo(0,
           duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
 
     try {
-      final firstField = state.type!.requiredFields.first;
-      final firstValue = state.fieldValues[firstField] ?? '';
+      final firstValue = state.type!.requiredFields.isNotEmpty
+          ? (state.fieldValues[state.type!.requiredFields.first] ?? '')
+          : '';
 
       final result = await ref.read(_aiServiceProvider).generateLetter(
             letterType: state.type!.id,
             category: state.category!.label,
             problemDescription: _buildPrompt(state),
-            userRights: '',
-            applicableLaw: 'Applicable Indian Laws',
-            steps: [],
+            userRights: state.fieldValues['Rights'] ?? state.fieldValues['User Rights'] ?? '',
+            applicableLaw: state.fieldValues['Law'] ?? state.fieldValues['Applicable Law'] ?? 'Applicable Indian Laws',
+            steps: (state.fieldValues['Steps'] ?? state.fieldValues['Action Steps'] ?? '').split('\n').where((s) => s.trim().isNotEmpty).toList(),
             senderName: firstValue.trim(),
             senderAddress: state.fieldValues['Address']?.trim() ??
                 state.fieldValues['Property Address']?.trim() ??
@@ -169,6 +183,8 @@ Now write the complete ${type.label}:
                 '',
           );
 
+      if (!mounted) return;
+
       String clean = result.trim();
       if (clean.startsWith('```')) {
         final lines = clean.split('\n');
@@ -176,10 +192,12 @@ Now write the complete ${type.label}:
           clean = lines.sublist(1, lines.length - 1).join('\n');
         }
       }
+      clean = clean.replaceAll(RegExp(r'```[a-zA-Z]*\n?'), '').replaceAll('```', '').trim();
 
       _resultController.text = clean;
       ref.read(legalWritingProvider.notifier).setResult(clean);
     } catch (e) {
+      if (!mounted) return;
       ref.read(legalWritingProvider.notifier).setError(e.toString());
     }
   }
@@ -217,6 +235,7 @@ Now write the complete ${type.label}:
     final values = state.fieldValues;
     final type = state.type!;
     final name = values['Sender'] ??
+        values['applicant_name'] ??
         values['Deponent Name'] ??
         values['Complainant'] ??
         values['Applicant'] ??
@@ -224,18 +243,20 @@ Now write the complete ${type.label}:
     final person = PersonInfo(
         fullName: name,
         address: values['Address'] ??
+            values['applicant_address'] ??
             values['Property Address'] ??
             'Address not provided');
     final body = _resultController.text.trim().isEmpty
         ? state.result
         : _resultController.text;
+    final statements = body.split('\n').where((s) => s.trim().isNotEmpty).toList();
     final id = type.id.toLowerCase();
     if (id.contains('affidavit')) {
       return AffidavitDocument(
           title: type.label,
           deponent: person,
           purpose: type.label,
-          statements: const []);
+          statements: statements);
     }
     if (id.contains('rti')) {
       return RtiDocument(
@@ -245,7 +266,7 @@ Now write the complete ${type.label}:
               name: values['Department'] ?? values['Public Authority'] ?? '',
               designation: 'Public Information Officer',
               address: values['PIO Address'] ?? ''),
-          informationSought: const [],
+          informationSought: statements,
           timePeriod: values['Period'] ?? '',
           preferredFormat: values['Preferred Format'] ?? '',
           feePaid: values['Fee Method'] ?? '');
@@ -268,7 +289,7 @@ Now write the complete ${type.label}:
               name: values['Recipient'] ??
                   values['Opposite Party'] ??
                   'Recipient'),
-          backgroundFacts: const [],
+          backgroundFacts: statements,
           legalViolation: '',
           reliefDemanded: [
             values['Relief Sought'] ?? 'Relief as stated above'

@@ -627,6 +627,43 @@ Keep legal terms like RTI, PIL, FIR, IPC, CPC, CrPC, and act names in English wh
     // TODO: Send sanitized error to Crashlytics or other crash reporting service
     // Example: FirebaseCrashlytics.instance.recordError(error, StackTrace.current, reason: context);
   }
+
+  /// Generate text with custom system prompt and user prompt
+  /// Used for document generation with specific prompts
+  Future<String> generateText({
+    required String systemPrompt,
+    required String userPrompt,
+    double temperature = 0.3,
+  }) async {
+    try {
+      // Try OpenRouter first
+      if (kDebugMode) {
+        debugPrint('[AIService] Generating text with OpenRouter...');
+      }
+      final result = await _openRouterService.generateRaw(systemPrompt, userPrompt);
+      if (kDebugMode) debugPrint('[AIService] OpenRouter text generation success');
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AIService] OpenRouter text generation failed: $e');
+      }
+    }
+
+    // Fallback to Groq
+    try {
+      if (kDebugMode) {
+        debugPrint('[AIService] Generating text with Groq...');
+      }
+      final result = await _groqService.generateRaw(systemPrompt, userPrompt);
+      if (kDebugMode) debugPrint('[AIService] Groq text generation success');
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AIService] Groq text generation failed: $e');
+      }
+      throw Exception('All AI providers failed for text generation: $e');
+    }
+  }
 }
 
 // =============================================================================

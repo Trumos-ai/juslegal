@@ -41,12 +41,6 @@ class AuthService {
       if (kIsWeb) {
         final credential = await _firebaseAuth.signInWithPopup(GoogleAuthProvider());
         // ✅ FIX: Check email verification
-        if (!(credential.user?.emailVerified ?? false)) {
-          await credential.user?.sendEmailVerification();
-          throw const EmailVerificationRequiredException(
-            'Please verify your email address before signing in.',
-          );
-        }
         return credential;
       }
 
@@ -62,12 +56,6 @@ class AuthService {
       final userCredential = await _firebaseAuth.signInWithCredential(credential);
       
       // ✅ FIX: Check email verification
-      if (!(userCredential.user?.emailVerified ?? false)) {
-        await userCredential.user?.sendEmailVerification();
-        throw const EmailVerificationRequiredException(
-          'Please verify your email address before signing in.',
-        );
-      }
       return userCredential;
     } on AuthCancelledException {
       rethrow;

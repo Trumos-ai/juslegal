@@ -1,4 +1,9 @@
-﻿// -----------------------------------------------------------------------------// app_config.templates.dart — Document templates (formerly core/config/templates.dart)// -----------------------------------------------------------------------------part of 'app_config.dart';
+﻿// -----------------------------------------------------------------------------
+// app_config.templates.dart — Document templates (formerly core/config/templates.dart)
+// -----------------------------------------------------------------------------
+part of 'app_config.dart';
+
+
 class ComplaintTemplates {
   static Map<String, Map<String, String>> get templates => {
         'E-commerce & Shopping': {
@@ -2279,6 +2284,211 @@ class FormTemplates {
             required: true,
             hint: 'Why was the cheque given - loan, goods, services?',
             maxLines: 4),
+      ],
+    ),
+
+    // -- 11. Legal Notice ----------------------------------------------------
+    FormTemplateModel(
+      id: 'legal_notice',
+      title: 'Legal Notice',
+      subtitle: 'Formal legal notice to opposite party before litigation',
+      authority: 'Send to opposite party via registered post',
+      actReference: 'Indian Contract Act, 1872',
+      instructions:
+          'Send via registered post with acknowledgment due. Keep copy and postal receipt for evidence.',
+      documents: [
+        'Copy of agreement/contract (if any)',
+        'Correspondence with opposite party',
+        'Proof of transaction/payment',
+        'Any previous notices sent',
+      ],
+      fields: [
+        FormFieldModel(
+            key: 'senderName',
+            label: 'Your Full Name',
+            type: FormFieldType.text,
+            required: true,
+            hint: 'Your full legal name'),
+        FormFieldModel(
+            key: 'senderAddress',
+            label: 'Your Address',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Full address with pin code',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'senderPhone',
+            label: 'Phone Number',
+            type: FormFieldType.phone,
+            required: true,
+            hint: '10-digit mobile number'),
+        FormFieldModel(
+            key: 'recipientName',
+            label: 'Recipient Name',
+            type: FormFieldType.text,
+            required: true,
+            hint: 'Name of person/company sending notice to'),
+        FormFieldModel(
+            key: 'recipientAddress',
+            label: 'Recipient Address',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Full address of recipient',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'issueDescription',
+            label: 'Issue Description',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Describe the dispute or issue in detail',
+            maxLines: 6),
+        FormFieldModel(
+            key: 'legalViolation',
+            label: 'Legal Violation / Breach',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'What law or contract term was violated?',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'demands',
+            label: 'Demands / Relief Sought',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'What do you want the recipient to do?',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'complianceDeadline',
+            label: 'Compliance Deadline (Days)',
+            type: FormFieldType.number,
+            required: true,
+            hint: 'Days given to comply (usually 7-30)'),
+        FormFieldModel(
+            key: 'previousNotices',
+            label: 'Previous Notices',
+            type: FormFieldType.textarea,
+            hint: 'Any previous notices sent?',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'evidenceList',
+            label: 'Evidence Available',
+            type: FormFieldType.textarea,
+            hint: 'List documents you have as evidence',
+            maxLines: 3),
+      ],
+    ),
+
+    // -- 12. Rent Agreement ---------------------------------------------------
+    FormTemplateModel(
+      id: 'rent_agreement',
+      title: 'Rent Agreement',
+      subtitle: 'Residential or commercial rental agreement',
+      authority: 'Notary / Sub-Registrar for registration',
+      actReference: 'Transfer of Property Act, 1882',
+      instructions:
+          'Print on plain paper, sign by both parties and 2 witnesses. For agreements over 11 months, register at Sub-Registrar office.',
+      documents: [
+        'Identity proof of landlord and tenant (Aadhaar/PAN)',
+        'Property ownership documents',
+        'Passport size photos',
+        'Address proof',
+      ],
+      fields: [
+        FormFieldModel(
+            key: 'landlordName',
+            label: 'Landlord Full Name',
+            type: FormFieldType.text,
+            required: true,
+            hint: 'Property owner name'),
+        FormFieldModel(
+            key: 'landlordAddress',
+            label: 'Landlord Address',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Full address with pin code',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'landlordPhone',
+            label: 'Landlord Phone',
+            type: FormFieldType.phone,
+            required: true,
+            hint: '10-digit mobile number'),
+        FormFieldModel(
+            key: 'tenantName',
+            label: 'Tenant Full Name',
+            type: FormFieldType.text,
+            required: true,
+            hint: 'Person renting the property'),
+        FormFieldModel(
+            key: 'tenantAddress',
+            label: 'Tenant Address',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Permanent address',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'tenantPhone',
+            label: 'Tenant Phone',
+            type: FormFieldType.phone,
+            required: true,
+            hint: '10-digit mobile number'),
+        FormFieldModel(
+            key: 'propertyAddress',
+            label: 'Property Address',
+            type: FormFieldType.textarea,
+            required: true,
+            hint: 'Full address of rented property',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'propertyType',
+            label: 'Property Type',
+            type: FormFieldType.dropdown,
+            required: true,
+            options: [
+              'Residential Flat',
+              'Independent House',
+              'Commercial Office',
+              'Shop/Showroom',
+              'Warehouse/Godown',
+              'Other'
+            ]),
+        FormFieldModel(
+            key: 'monthlyRent',
+            label: 'Monthly Rent (Rs.)',
+            type: FormFieldType.number,
+            required: true,
+            hint: 'Monthly rent amount',
+            prefix: 'Rs.'),
+        FormFieldModel(
+            key: 'leaseDuration',
+            label: 'Lease Duration',
+            type: FormFieldType.text,
+            required: true,
+            hint: 'e.g. 11 months, 1 year, 3 years'),
+        FormFieldModel(
+            key: 'startDate',
+            label: 'Lease Start Date',
+            type: FormFieldType.date,
+            required: true,
+            hint: 'DD/MM/YYYY'),
+        FormFieldModel(
+            key: 'securityDeposit',
+            label: 'Security Deposit (Rs.)',
+            type: FormFieldType.number,
+            required: true,
+            hint: 'Deposit amount',
+            prefix: 'Rs.'),
+        FormFieldModel(
+            key: 'maintenanceResponsibility',
+            label: 'Maintenance Responsibility',
+            type: FormFieldType.textarea,
+            hint: 'Who pays for maintenance, repairs, etc?',
+            maxLines: 3),
+        FormFieldModel(
+            key: 'specialClauses',
+            label: 'Special Clauses',
+            type: FormFieldType.textarea,
+            hint: 'Any special terms or conditions',
+            maxLines: 3),
       ],
     ),
   ];

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:juslegal/l10n/gen/app_localizations.dart';
 
@@ -7,7 +8,7 @@ import '../../services/auth_handler.dart';
 import '../../services/firebase_token_service.dart';
 import '../../screens/authorities_screen.dart';
 import '../../screens/complaint_generator_screen.dart';
-import '../../screens/email_auth_screen.dart';
+import '../../screens/auth_flow_screens.dart';
 import '../../screens/home_screen.dart';
 import '../../screens/ai_legal_chat_screen.dart';
 import '../../screens/case_analysis_screen.dart';
@@ -16,7 +17,6 @@ import '../../screens/document_review_screen.dart';
 import '../../screens/legal_advice_screen.dart';
 import '../../screens/legal_terms_screen.dart';
 import '../../screens/legal_writing_screen.dart';
-import '../../screens/login_screen_new.dart';
 import '../../screens/my_cases_screen.dart';
 import '../../screens/not_found_screen.dart';
 import '../../screens/otp_screen.dart';
@@ -35,6 +35,7 @@ class RouterRefreshNotifier extends ChangeNotifier {
 
 class AppRouteNames {
   static const String login = 'login';
+  static const String welcome = 'welcome';
   static const String emailAuth = 'emailAuth';
   static const String otp = 'otp';
   static const String home = 'home';
@@ -86,7 +87,7 @@ GoRouter buildRouter({
           path == '/home' || path.startsWith('/home/') || path == '/analyze';
 
       if (isProtectedRoute && user == null) {
-        return '/login';
+        return '/';
       }
 
       if (isProtectedRoute &&
@@ -94,18 +95,18 @@ GoRouter buildRouter({
           user.providerData
               .any((provider) => provider.providerId == 'password') &&
           !user.emailVerified) {
-        return '/email-auth';
+        return '/email-verification';
       }
 
       if (isProtectedRoute &&
           await FirebaseTokenService().getIdToken() == null) {
-        return '/login';
+        return '/';
       }
 
       // Handle root path redirect
       if (path == '/') {
         if (user == null) {
-          return '/login';
+          return '/';
         } else {
           return '/home';
         }
@@ -130,15 +131,29 @@ GoRouter buildRouter({
         builder: (context, state) => const _FirebaseUnavailableScreen(),
       ),
       GoRoute(
-        path: '/login',
-        name: AppRouteNames.login,
-        builder: (context, state) => const LoginScreenNew(),
+        path: '/',
+        name: AppRouteNames.welcome,
+        builder: (context, state) => const WelcomeScreen(),
       ),
       GoRoute(
-        path: '/email-auth',
-        name: AppRouteNames.emailAuth,
-        builder: (context, state) => const EmailAuthScreen(),
+        path: '/login',
+        name: AppRouteNames.login,
+        builder: (context, state) => const LoginScreen(),
       ),
+      GoRoute(
+        path: '/signup-method',
+        builder: (context, state) => const SignUpMethodScreen(),
+      ),
+      GoRoute(path: '/email-signup', builder: (context, state) => const EmailSignupScreen()),
+      GoRoute(
+        path: '/email-verification',
+        name: AppRouteNames.emailAuth,
+        builder: (context, state) => EmailVerificationScreen(email: state.extra as String? ?? ''),
+      ),
+      GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
+      GoRoute(path: '/mobile-signup', builder: (context, state) => const MobileEntryScreen(signup: true)),
+      GoRoute(path: '/mobile-login', builder: (context, state) => const MobileEntryScreen(signup: false)),
+      GoRoute(path: '/confirm-name', builder: (context, state) => ConfirmNameScreen(user: state.extra! as User)),
       GoRoute(
         path: '/otp',
         name: AppRouteNames.otp,
@@ -147,6 +162,8 @@ GoRouter buildRouter({
           return OtpScreen(
             verificationId: params.verificationId,
             phoneNumber: params.phoneNumber,
+            legalName: params.legalName,
+            isSignup: params.isSignup,
           );
         },
       ),

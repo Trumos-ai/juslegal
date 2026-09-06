@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:developer' as developer;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:juslegal/core/core.dart';
@@ -102,15 +103,16 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
 
     return _authorities.where((a) {
       final name = (a['name'] ?? '').toLowerCase();
-      final category = (a['category'] ?? '').toLowerCase();
-      return name.contains(q) || category.contains(q);
+      final purpose = (a['purpose'] ?? '').toLowerCase();
+      return name.contains(q) || purpose.contains(q);
     }).toList();
   }
 
   bool _isLikelyPhone(String? v) {
     final s = (v ?? '').trim();
     if (s.isEmpty) return false;
-    return RegExp(r'^[0-9+\-\s]{3,}$').hasMatch(s);
+    final digits = s.replaceAll(RegExp(r'\D'), '');
+    return digits.length >= 5 && RegExp(r'^[0-9+\-\s]+$').hasMatch(s);
   }
 
   bool _isLikelyEmail(String? v) {
@@ -139,7 +141,7 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
 
   Future<void> _launchUrl(String urlLike) async {
     final trimmed = urlLike.trim();
-    if (trimmed.isEmpty) return;
+    if (!_isLikelyWebsite(trimmed)) return;
 
     final Uri url =
         trimmed.startsWith('http://') || trimmed.startsWith('https://')
@@ -167,7 +169,13 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!launched) _showLaunchFailure(failureMessage);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to launch external URI: $uri',
+        name: 'AuthoritiesScreen',
+        error: error,
+        stackTrace: stackTrace,
+      );
       _showLaunchFailure(failureMessage);
     }
   }
@@ -263,8 +271,7 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
                       height: 48,
                       child: ElevatedButton(
                         onPressed: () async {
-                          Navigator.of(ctx).pop();
-                          await _launchUrl(contact);
+                          await _closeAndLaunchWebsite(ctx, contact);
                         },
                         child: const Text('Visit Website'),
                       ),
@@ -290,6 +297,14 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
     );
   }
 
+  Future<void> _closeAndLaunchWebsite(
+    BuildContext sheetContext,
+    String contact,
+  ) async {
+    Navigator.of(sheetContext).pop();
+    await _launchUrl(contact);
+  }
+
   Widget _buildContactActions({
     required BuildContext context,
     required String name,
@@ -305,7 +320,7 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
       spacing: 10,
       runSpacing: 10,
       children: [
-        if (isPhone || action == 'Call Now')
+        if (contact.isNotEmpty && (isPhone || action == 'Call Now'))
           _ContactActionIcon(
             icon: Icons.call,
             label: 'Phone',
@@ -314,7 +329,7 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
               await _launchCall(contact);
             },
           ),
-        if (isEmail)
+        if (contact.isNotEmpty && isEmail)
           _ContactActionIcon(
             icon: Icons.email,
             label: 'Email',
@@ -323,16 +338,15 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
               await _launchEmail(contact);
             },
           ),
-        if (isWebsite)
+        if (contact.isNotEmpty && isWebsite)
           _ContactActionIcon(
             icon: Icons.open_in_browser,
             label: 'Website',
             onPressed: () async {
-              closeSheet();
-              await _launchUrl(contact);
+              await _closeAndLaunchWebsite(context, contact);
             },
           ),
-        if (action == 'Find Nearest')
+        if (action == 'Find Nearest' && contact.isEmpty)
           _ContactActionIcon(
             icon: Icons.location_on,
             label: 'Find Nearest',
@@ -425,6 +439,8 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasSearchQuery = searchQuery.trim().isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -454,11 +470,11 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
                   ? EmptyStateWidget(
                       icon: Icons.gavel_outlined,
                       title: 'No authorities found',
-                      subtitle: searchQuery.isEmpty
+                      subtitle: !hasSearchQuery
                           ? 'No authority results are available right now.'
                           : 'Try a different search or clear your query.',
-                      actionLabel: searchQuery.isEmpty ? null : 'Clear search',
-                      onActionPressed: searchQuery.isEmpty
+                      actionLabel: hasSearchQuery ? 'Clear search' : null,
+                      onActionPressed: !hasSearchQuery
                           ? null
                           : () => setState(() => searchQuery = ''),
                     )
@@ -473,6 +489,12 @@ class _AuthoritiesScreenState extends State<AuthoritiesScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    searchQuery = '';
+    super.dispose();
   }
 }
 
@@ -493,26 +515,30 @@ class _ContactActionIcon extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(8),
       splashColor: AppColors.trustBlue.withValues(alpha: 0.08),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: AppColors.legalGold,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-            ),
-          ],
+      child: Semantics(
+        button: true,
+        label: label,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: AppColors.legalGold,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -149,6 +149,10 @@ class LegalWritingNotifier extends Notifier<LegalWritingState> {
     );
   }
 
+  void updateResult(String result) {
+    state = state.copyWith(result: result);
+  }
+
   void setError(String error) {
     state = state.copyWith(
       error: error,

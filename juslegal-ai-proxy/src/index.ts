@@ -328,14 +328,14 @@ export default {
 		}
 
 		const { pathname } = new URL(request.url);
-
-		// ✅ FIXED: Use actual free models
+		
+		// ✅ FIXED: Use correct free models
 		const expectedModel = pathname === "/callGroq"
-			? "mixtral-8x7b-32768"  // Groq free model
+			? "openai/gpt-oss-120b"  // Groq free model (120B - better quality)
 			: pathname === "/callOpenRouter"
-				? "meta-llama/llama-2-7b-chat"  // OpenRouter free model
+				? "nvidia/nemotron-3.5-lightning:free"  // OpenRouter free model
 				: null;
-
+		
 		if (!expectedModel) return jsonResponse({ error: "Not found" }, 404, cors);
 
 		if (!(await hasValidBearerToken(request, env))) {

@@ -8,16 +8,21 @@ import 'package:juslegal/l10n/gen/app_localizations.dart';
 
 import 'package:juslegal/core/core.dart';
 import '../services/auth_handler.dart';
+import '../services/user_profile_service.dart';
 import '../widgets/loading_widget.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String verificationId;
   final String phoneNumber;
+  final String? legalName;
+  final bool isSignup;
 
   const OtpScreen({
     super.key,
     required this.verificationId,
     required this.phoneNumber,
+    this.legalName,
+    this.isSignup = false,
   });
 
   @override
@@ -25,7 +30,7 @@ class OtpScreen extends ConsumerStatefulWidget {
 }
 
 class _OtpScreenState extends ConsumerState<OtpScreen> {
-  static const int _otpExpirySeconds = 60; // ✅ FIX: Match Firebase timeout
+  static const int _otpExpirySeconds = 120;
   
   late final List<FocusNode> _focusNodes;
   late final List<TextEditingController> _controllers;
@@ -37,6 +42,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   bool _isAutoSubmitted = false;
   bool _isSubmitting = false; // ✅ FIX: Added submission flag
   late String _currentVerificationId;
+  int _wrongAttempts = 0;
+  int _resendAttempts = 0;
 
   @override
   void initState() {
@@ -189,11 +196,25 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       _localError = null;
     });
 
+    if (_secondsRemaining == 0) {
+      _clearFields(error: 'OTP has expired. Request a new one.');
+      return;
+    }
+    if (_wrongAttempts >= 3) {
+      _clearFields(error: 'Too many attempts. Please request a new OTP.');
+      return;
+    }
     try {
-      await ref.read(authProvider.notifier).verifyOTP(
+      final credential = await ref.read(authProvider.notifier).verifyOTP(
             _currentVerificationId,
             otpText,
           );
+      if (!mounted) return;
+      if (widget.isSignup && widget.legalName != null) {
+        await UserProfileService().saveProfile(
+          credential.user!, legalName: widget.legalName!, provider: 'phone', phoneVerified: true,
+        );
+      }
       if (!mounted) return;
       
       // ✅ FIX: Show success message
@@ -214,32 +235,38 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       if (!mounted) return;
       
       // ✅ FIX: Reset flags for retry
+      _wrongAttempts++;
+      final message = _wrongAttempts >= 3
+          ? 'Too many attempts. Please request a new OTP.'
+          : 'Incorrect OTP. Try again. ($_wrongAttempts of 3 attempts)';
       setState(() {
-        _localError = error.toString();
+        _localError = message;
         _isSubmitting = false;
         _isAutoSubmitted = false;
       });
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.toString()),
+          content: Text(message),
           backgroundColor: Colors.red.shade700,
           duration: const Duration(seconds: 3),
         ),
       );
       
       // ✅ FIX: Clear fields for retry
-      _clearFields(error: error.toString());
+      _clearFields(error: message);
     }
   }
 
   // ✅ FIX: Fixed resend with proper cleanup
   Future<void> _resendOtp() async {
-    if (_secondsRemaining > 0 || _isSubmitting) return;
+    if (_secondsRemaining > 0 || _isSubmitting || _resendAttempts >= 3) return;
 
     final l10n = AppLocalizations.of(context);
     
     // ✅ FIX: Clear all fields and reset state
+    _resendAttempts++;
+    _wrongAttempts = 0;
     _clearFields(resetAll: true);
 
     final fullPhoneNumber = widget.phoneNumber.startsWith('+')
