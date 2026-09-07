@@ -450,7 +450,15 @@ class PdfBuilder {
     final lines = doc.content
         .split('\n')
         .map((line) => line.trim())
-        .where((line) => line.isNotEmpty);
+        .where((line) => line.isNotEmpty)
+        .where((line) => line.toUpperCase() != 'RENT AGREEMENT')
+        .toList();
+    final signatories = <_RentSignatory>[
+      ...doc.landlords.map((name) => _RentSignatory('Landlord', name)),
+      ...doc.tenants.map((name) => _RentSignatory('Tenant', name)),
+      const _RentSignatory('Witness 1', ''),
+      const _RentSignatory('Witness 2', ''),
+    ];
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.fromLTRB(64, 68, 64, 68),
@@ -467,22 +475,62 @@ class PdfBuilder {
         pw.SizedBox(height: 20),
         ...lines.map((line) {
           final isHeading = RegExp(r'^[A-Z][A-Z &/()\-]{2,}$').hasMatch(line);
-          final isClause = RegExp(r'^\d+[.)]').hasMatch(line);
+          final isClause = RegExp(r'^\d+[.)]\s+').hasMatch(line);
           return pw.Padding(
-            padding: pw.EdgeInsets.only(bottom: isHeading ? 9 : 7),
+            padding: pw.EdgeInsets.only(
+                top: isHeading ? 4 : 0, bottom: isHeading ? 9 : 8),
             child: pw.Text(line,
                 textAlign:
                     isHeading ? pw.TextAlign.center : pw.TextAlign.justify,
                 style: pw.TextStyle(
                     fontSize: isHeading ? 11 : 10.5,
-                    lineSpacing: 3,
+                    lineSpacing: 3.5,
                     fontWeight: isHeading || isClause
                         ? pw.FontWeight.bold
                         : pw.FontWeight.normal)),
           );
         }),
+        pw.SizedBox(height: 20),
+        pw.Text('SIGNATURES',
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 18),
+        pw.Wrap(
+          spacing: 30,
+          runSpacing: 24,
+          children: signatories
+              .map((signatory) => pw.SizedBox(
+                    width: 210,
+                    child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Container(
+                              width: 160, height: 1, color: PdfColors.black),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                              signatory.name.isEmpty
+                                  ? signatory.role
+                                  : signatory.name,
+                              style: pw.TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: pw.FontWeight.bold)),
+                          pw.Text(
+                              signatory.name.isEmpty
+                                  ? 'Signature'
+                                  : '${signatory.role} signature',
+                              style: const pw.TextStyle(fontSize: 9)),
+                        ]),
+                  ))
+              .toList(),
+        ),
       ],
     ));
     return pdf.save();
   }
+}
+
+class _RentSignatory {
+  const _RentSignatory(this.role, this.name);
+  final String role;
+  final String name;
 }

@@ -147,14 +147,6 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   }
 
   Future<void> _generate() async {
-    if (widget.definition.id == 'rent_agreement' &&
-        _formData.getValue('agreementType') == 'commercial') {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content:
-            Text('Commercial Rent Agreement fields are not available yet.'),
-      ));
-      return;
-    }
     final validator = const FormValidator();
     final errors = validator.validateDocument(
       definition: widget.definition,

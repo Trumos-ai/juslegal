@@ -122,25 +122,34 @@ Safety and accuracy requirements:
   PromptResult _buildRentAgreementPrompt(
       DocumentFormData formData, String language) {
     final details = _flattenValues(formData.values);
+    final isCommercial = details['agreementType'] == 'commercial';
+    final variant = isCommercial ? 'commercial' : 'residential';
+    final propertyDetails = isCommercial
+        ? '''Commercial property type: ${details['commercialPropertyType'] ?? ''}
+Permitted business use: ${details['permittedUse'] ?? ''}
+Tenant business / trade name: ${details['businessName'] ?? ''}
+Maintenance responsibility: ${details['maintenanceResponsibility'] ?? ''}'''
+        : '''Furnished items: ${details['furnishedItems'] ?? ''}
+Society maintenance included: ${details['societyMaintenanceIncluded'] ?? ''}''';
     return PromptResult(
       systemPrompt: '''You are a professional Indian legal document drafter.
 Generate only a completed RENT AGREEMENT. Return no conversational text, JSON, Markdown fences, explanations, or use of the word "Draft".
-Use only supplied facts. Never invent user-specific facts, legal citations, registration details, seals, approvals, dates, names, amounts, property particulars, or ID data. Do not expose full identity-document numbers: omit them or identify only the document type and a masked reference.
-Use this structure: RENT AGREEMENT; execution statement; BETWEEN; LANDLORD(S); AND; TENANT(S); WHEREAS; property recital; numbered contractual clauses covering Term of Tenancy, Possession/Handover, Rent & Security Deposit, Utilities & Maintenance, Use of Property, Quiet Enjoyment, and other appropriate standard clauses supported by the supplied facts; signatures for every landlord, tenant, and two witnesses.''',
+Use only supplied facts and preserve them exactly. Never invent user-specific facts, legal citations, registration details, seals, approvals, dates, names, amounts, property particulars, or ID data.
+Use this structure: RENT AGREEMENT; execution statement; BETWEEN; LANDLORD(S); AND; TENANT(S); WHEREAS; property recital; numbered contractual clauses; signature blocks for every landlord, tenant, and two witnesses.
+${isCommercial ? 'For commercial premises, cover the supplied permitted business use, business name, maintenance responsibility, rent, deposit, term, lock-in, escalation and late-payment terms only when supplied.' : 'For residential premises, cover the supplied tenancy, possession/handover, rent, deposit, utilities/maintenance, use of property and quiet enjoyment terms only when supported by the supplied facts.'}''',
       userPrompt:
-          '''Prepare a residential rent agreement in $language using only these supplied details:
+          '''Prepare a $variant rent agreement in $language using only these supplied details:
 Agreement date: ${details['agreementDate'] ?? ''}
 Execution city: ${details['executionCity'] ?? ''}
 Execution state: ${details['executionState'] ?? ''}
 Property address: ${details['propertyAddress'] ?? ''}
-Furnished items: ${details['furnishedItems'] ?? ''}
+$propertyDetails
 Tenancy start date: ${details['tenancyStartDate'] ?? ''}
 Tenancy end date: ${details['tenancyEndDate'] ?? ''}
 Tenancy period (months): ${details['tenancyPeriodMonths'] ?? ''}
 Monthly rent: ${details['monthlyRent'] ?? ''}
 Rent due day: ${details['rentDueDay'] ?? ''}
 Security deposit: ${details['securityDeposit'] ?? ''}
-Society maintenance included: ${details['societyMaintenanceIncluded'] ?? ''}
 Lock-in period: ${details['lockInPeriod'] ?? ''}
 Annual rent escalation %: ${details['annualRentEscalation'] ?? ''}
 Late payment interest % per month: ${details['latePaymentInterest'] ?? ''}
