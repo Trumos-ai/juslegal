@@ -62,9 +62,8 @@ class AIService {
   /// OpenRouter is preferred and Groq is used when it cannot respond.
   /// Throws UserFacingException with sanitized message.
   Future<String> sendMessage(
-    String userMessage,
-    List<Map<String, String>> conversationHistory,
-    {String languageCode = 'en'}) async {
+      String userMessage, List<Map<String, String>> conversationHistory,
+      {String languageCode = 'en'}) async {
     String openRouterError = 'Unknown error';
     try {
       if (kDebugMode) {
@@ -221,8 +220,8 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     try {
       if (kDebugMode) debugPrint('[AIService] Attempting Groq...');
       final result = await _tryWithRetry(
-        () =>
-            _groqService.analyze(systemPrompt, localizedPrompt, category: category),
+        () => _groqService.analyze(systemPrompt, localizedPrompt,
+            category: category),
         'Groq',
       );
       if (kDebugMode) debugPrint('[AIService] ✅ Groq success');
@@ -281,20 +280,32 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     required String incidentDate,
     String languageCode = 'en',
   }) async {
-    final prompts = DocumentPromptsComplete.getPromptsForType(letterType, languageCode);
+    final prompts =
+        DocumentPromptsComplete.getPromptsForType(letterType, languageCode);
     final systemPrompt = prompts['system'] ?? '';
     var userPrompt = prompts['user'] ?? '';
 
     userPrompt = userPrompt
-        .replaceAll('{senderName}', senderName.isNotEmpty ? senderName : '[Your Name]')
-        .replaceAll('{senderAddress}', senderAddress.isNotEmpty ? senderAddress : '[Your Address]')
-        .replaceAll('{recipientName}', opponentName.isNotEmpty ? opponentName : '[Recipient Name]')
-        .replaceAll('{opponentName}', opponentName.isNotEmpty ? opponentName : '[Opponent Name]')
-        .replaceAll('{incidentDate}', incidentDate.isNotEmpty ? incidentDate : '[Date]')
-        .replaceAll('{problemDescription}', problemDescription.isNotEmpty ? problemDescription : '[Problem Details]')
-        .replaceAll('{applicableLaw}', applicableLaw.isNotEmpty ? applicableLaw : '[Applicable Law]');
+        .replaceAll(
+            '{senderName}', senderName.isNotEmpty ? senderName : '[Your Name]')
+        .replaceAll('{senderAddress}',
+            senderAddress.isNotEmpty ? senderAddress : '[Your Address]')
+        .replaceAll('{recipientName}',
+            opponentName.isNotEmpty ? opponentName : '[Recipient Name]')
+        .replaceAll('{opponentName}',
+            opponentName.isNotEmpty ? opponentName : '[Opponent Name]')
+        .replaceAll(
+            '{incidentDate}', incidentDate.isNotEmpty ? incidentDate : '[Date]')
+        .replaceAll(
+            '{problemDescription}',
+            problemDescription.isNotEmpty
+                ? problemDescription
+                : '[Problem Details]')
+        .replaceAll('{applicableLaw}',
+            applicableLaw.isNotEmpty ? applicableLaw : '[Applicable Law]');
 
-    final localizedSystemPrompt = '$systemPrompt\n${_languageInstruction(languageCode)}';
+    final localizedSystemPrompt =
+        '$systemPrompt\n${_languageInstruction(languageCode)}';
 
     String openRouterError = 'Unknown error';
     String groqError = 'Unknown error';
@@ -303,7 +314,8 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
       if (kDebugMode) {
         debugPrint('[AIService] Generating $letterType with OpenRouter...');
       }
-      final result = await _openRouterService.generateRaw(localizedSystemPrompt, userPrompt);
+      final result = await _openRouterService.generateRaw(
+          localizedSystemPrompt, userPrompt);
       if (kDebugMode) debugPrint('[AIService] OpenRouter $letterType success');
       return _documentTextFromJson(result);
     } on NetworkException catch (error) {
@@ -318,8 +330,10 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     }
 
     try {
-      if (kDebugMode) debugPrint('[AIService] Generating $letterType with Groq fallback...');
-      final result = await _groqService.generateRaw(localizedSystemPrompt, userPrompt);
+      if (kDebugMode)
+        debugPrint('[AIService] Generating $letterType with Groq fallback...');
+      final result =
+          await _groqService.generateRaw(localizedSystemPrompt, userPrompt);
       if (kDebugMode) debugPrint('[AIService] ✅ Groq $letterType success');
       return _documentTextFromJson(result);
     } on NetworkException catch (error) {
@@ -334,7 +348,8 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     }
 
     if (kDebugMode) {
-      debugPrint('[AIService] $letterType generation failed. OpenRouter: $openRouterError. Groq: $groqError.');
+      debugPrint(
+          '[AIService] $letterType generation failed. OpenRouter: $openRouterError. Groq: $groqError.');
     }
     throw ErrorSanitizer.toUserFacing(
         AllProvidersFailedException(openRouterError, groqError));
@@ -350,9 +365,12 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
   }) async {
     final type = documentType.toLowerCase();
     if (kDebugMode) {
-      debugPrint('[AIService] generateDocumentFields - documentType: $documentType');
-      debugPrint('[AIService] generateDocumentFields - type (lowercase): $type');
-      debugPrint('[AIService] generateDocumentFields - fieldsText: $fieldsText');
+      debugPrint(
+          '[AIService] generateDocumentFields - documentType: $documentType');
+      debugPrint(
+          '[AIService] generateDocumentFields - type (lowercase): $type');
+      debugPrint(
+          '[AIService] generateDocumentFields - fieldsText: $fieldsText');
     }
     final schema = type.contains('consumer') || type.contains('complaint')
         ? '''{
@@ -433,16 +451,6 @@ $schema''';
     return parsedJson;
   }
 
-  static String _stripJsonFences(String value) {
-    final trimmed = value.trim();
-    if (!trimmed.startsWith('```')) return trimmed;
-    final lines = trimmed.split(RegExp(r'\r?\n'));
-    if (lines.length >= 2 && lines.last.trim() == '```') {
-      return lines.sublist(1, lines.length - 1).join('\n').trim();
-    }
-    return trimmed.replaceFirst(RegExp(r'^```(?:json)?\s*'), '').trim();
-  }
-
   static String _extractJsonObject(String value) {
     var clean = value.trim();
     if (clean.startsWith('```')) {
@@ -459,7 +467,19 @@ $schema''';
   }
 
   static String _documentTextFromJson(String value) {
-    final decoded = jsonDecode(_stripJsonFences(value));
+    final cleaned = value
+        .replaceAll(RegExp(r'^```(json)?\s*'), '')
+        .replaceAll(RegExp(r'\s*```$'), '')
+        .replaceAll(RegExp(r'^\*\*'), '')
+        .replaceAll(RegExp(r'\*\*$'), '')
+        .trim();
+
+    // Some providers ignore the JSON instruction and return the agreement as
+    // markdown/plain text. It is still a valid generated document, so do not
+    // reject it solely because it is not a JSON object.
+    if (!cleaned.startsWith('{')) return cleaned;
+
+    final decoded = jsonDecode(cleaned);
     if (decoded is! Map || decoded['document_text'] is! String) {
       throw const FormatException(
           'AI response must contain a document_text JSON field.');
@@ -574,8 +594,10 @@ Keep legal terms like RTI, PIL, FIR, IPC, CPC, CrPC, and act names in English wh
       if (kDebugMode) {
         debugPrint('[AIService] Generating text with OpenRouter...');
       }
-      final result = await _openRouterService.generateRaw(systemPrompt, userPrompt);
-      if (kDebugMode) debugPrint('[AIService] OpenRouter text generation success');
+      final result =
+          await _openRouterService.generateRaw(systemPrompt, userPrompt);
+      if (kDebugMode)
+        debugPrint('[AIService] OpenRouter text generation success');
       return result;
     } catch (e) {
       if (kDebugMode) {
@@ -607,8 +629,9 @@ Keep legal terms like RTI, PIL, FIR, IPC, CPC, CrPC, and act names in English wh
     String languageCode = 'en',
   }) async {
     final language = languageCode == 'hi' ? 'Hindi' : 'English';
-    
-    final systemPrompt = '''You are a professional Indian legal document drafter.
+
+    final systemPrompt =
+        '''You are a professional Indian legal document drafter.
 Your task is to generate a complete, ready-to-print legal document based on the provided information.
 
 STRICT RULES:
@@ -622,7 +645,8 @@ STRICT RULES:
 
 Generate a complete $documentType document.''';
 
-    final userPrompt = '''Generate a complete $documentType document with the following information:
+    final userPrompt =
+        '''Generate a complete $documentType document with the following information:
 
 $fieldsText
 
@@ -838,8 +862,7 @@ class _WorkerChatClient {
     }
     final content = message['content'] as String;
     if (kDebugMode) {
-      debugPrint(
-          '[$_label] response received (length=${content.length})');
+      debugPrint('[$_label] response received (length=${content.length})');
     }
     return content;
   }
@@ -880,9 +903,11 @@ class _WorkerChatClient {
   List<Map<String, String>> _boundedMessages(
     List<Map<String, String>> input,
   ) {
-    final system = input.where((message) => message['role'] == 'system').take(1);
+    final system =
+        input.where((message) => message['role'] == 'system').take(1);
     final conversation = input
-        .where((message) => message['role'] == 'user' || message['role'] == 'assistant')
+        .where((message) =>
+            message['role'] == 'user' || message['role'] == 'assistant')
         .toList();
     final result = <Map<String, String>>[];
     var remainingChars = WorkerAiRequestLimits.maxTotalMessageChars;
@@ -895,7 +920,8 @@ class _WorkerChatClient {
 
     final newestFirst = <Map<String, String>>[];
     for (final message in conversation.reversed) {
-      if (newestFirst.length >= WorkerAiRequestLimits.maxMessages - result.length ||
+      if (newestFirst.length >=
+              WorkerAiRequestLimits.maxMessages - result.length ||
           remainingChars <= 0) {
         break;
       }
@@ -908,9 +934,10 @@ class _WorkerChatClient {
   }
 
   String _truncate(String value, int remainingChars) {
-    final maximum = remainingChars < WorkerAiRequestLimits.maxMessageContentChars
-        ? remainingChars
-        : WorkerAiRequestLimits.maxMessageContentChars;
+    final maximum =
+        remainingChars < WorkerAiRequestLimits.maxMessageContentChars
+            ? remainingChars
+            : WorkerAiRequestLimits.maxMessageContentChars;
     return value.length <= maximum ? value : value.substring(0, maximum);
   }
 
@@ -1235,8 +1262,7 @@ class SiliconFlowService {
         }
         return data;
       } else {
-        throw Exception(
-            'Failed to fetch account info: ${response.statusCode}');
+        throw Exception('Failed to fetch account info: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {

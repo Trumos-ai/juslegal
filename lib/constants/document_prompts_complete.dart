@@ -1,8 +1,10 @@
 class DocumentPromptsComplete {
-  static Map<String, String> getPromptsForType(String documentType, String language) {
+  static Map<String, String> getPromptsForType(
+      String documentType, String language) {
     final languageName = language == 'hi' ? 'Hindi' : 'English';
 
-    final type = documentType.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ');
+    final type =
+        documentType.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ');
 
     if (type.contains('legal notice')) {
       return _legalNoticePrompts(languageName);
@@ -102,7 +104,8 @@ class DocumentPromptsComplete {
 
   static Map<String, String> _legalNoticePrompts(String language) {
     return {
-      'system': '''You are a professional Indian legal writer specializing in formal legal notices.
+      'system':
+          '''You are a professional Indian legal writer specializing in formal legal notices.
 
 YOUR TASK: Generate a LEGAL NOTICE - a formal written demand from one party to another.
 
@@ -153,7 +156,8 @@ Output ONLY the notice document.'''
 
   static Map<String, String> _consumerComplaintPrompts(String language) {
     return {
-      'system': '''You are generating a CONSUMER COMPLAINT - a formal complaint to a business or company.
+      'system':
+          '''You are generating a CONSUMER COMPLAINT - a formal complaint to a business or company.
 
 DO NOT generate:
 - Legal notices (formal demands)
@@ -204,7 +208,8 @@ Output ONLY the complaint letter.'''
 
   static Map<String, String> _policeComplaintPrompts(String language) {
     return {
-      'system': '''You are generating a POLICE COMPLAINT (FIR draft) - formal complaint for police investigation.
+      'system':
+          '''You are generating a POLICE COMPLAINT (FIR draft) - formal complaint for police investigation.
 
 DO NOT generate:
 - Civil disputes
@@ -223,7 +228,8 @@ DO generate:
 
 Use ONLY provided information.
 Language: $language''',
-      'user': '''Generate a POLICE COMPLAINT (FIR Draft) based on this information:
+      'user':
+          '''Generate a POLICE COMPLAINT (FIR Draft) based on this information:
 
 Complainant Name: {complainantName}
 Father's/Spouse Name: {fatherName}
@@ -255,7 +261,8 @@ Output ONLY the complaint.'''
 
   static Map<String, String> _ceaseDesistPrompts(String language) {
     return {
-      'system': '''You are generating a CEASE & DESIST NOTICE - formal demand to stop unlawful activity.
+      'system':
+          '''You are generating a CEASE & DESIST NOTICE - formal demand to stop unlawful activity.
 
 DO NOT generate:
 - Casual warnings
@@ -302,7 +309,8 @@ Output ONLY the notice.'''
 
   static Map<String, String> _demandLetterPrompts(String language) {
     return {
-      'system': '''You are generating a DEMAND LETTER - formal demand for payment or action.
+      'system':
+          '''You are generating a DEMAND LETTER - formal demand for payment or action.
 
 DO NOT generate:
 - Threatening language
@@ -352,7 +360,14 @@ Output ONLY the demand letter.'''
 
   static Map<String, String> _rentAgreementPrompts(String language) {
     return {
-      'system': '''You are generating a RENT AGREEMENT - a binding contract between landlord and tenant.
+      'system':
+          '''You are generating a RENT AGREEMENT - a binding contract between landlord and tenant.
+
+You MUST respond ONLY with valid JSON. NO markdown, NO asterisks, NO code blocks.
+Format:
+{
+  "document_text": "full document text..."
+}
 
 THIS IS AN AGREEMENT, NOT A COMPLAINT.
 
@@ -381,7 +396,8 @@ Use ONLY the provided information. Do NOT assume any breaches, defaults, or prob
 This is a fresh, clean rental agreement between parties.
 
 Language: $language''',
-      'user': '''Generate a RENT AGREEMENT (NOT a complaint) with this information:
+      'user':
+          '''Generate a RENT AGREEMENT (NOT a complaint) with this information:
 
 LANDLORD DETAILS:
 Name: {landlordName}
@@ -434,7 +450,8 @@ Output ONLY the complete agreement document.'''
 
   static Map<String, String> _serviceAgreementPrompts(String language) {
     return {
-      'system': '''You are generating a SERVICE AGREEMENT - contract between service provider and client.
+      'system':
+          '''You are generating a SERVICE AGREEMENT - contract between service provider and client.
 
 DO NOT generate complaints or breach notices.
 Generate a clean, professional service agreement with terms, scope, fees, and termination.
@@ -512,7 +529,8 @@ Output ONLY the agreement.'''
 
   static Map<String, String> _employmentContractPrompts(String language) {
     return {
-      'system': '''You are generating an EMPLOYMENT CONTRACT between employer and employee.
+      'system':
+          '''You are generating an EMPLOYMENT CONTRACT between employer and employee.
 Generate professional employment terms including position, salary, benefits, and termination.
 Language: $language''',
       'user': '''Generate an EMPLOYMENT CONTRACT with this information:
@@ -641,7 +659,8 @@ Output ONLY the agreement.'''
 
   static Map<String, String> _partnershipDeedPrompts(String language) {
     return {
-      'system': '''You are generating a PARTNERSHIP DEED - agreement between business partners.
+      'system':
+          '''You are generating a PARTNERSHIP DEED - agreement between business partners.
 Generate professional partnership terms including capital, profit-sharing, and exit clauses.
 Language: $language''',
       'user': '''Generate a PARTNERSHIP DEED with this information:
@@ -718,7 +737,8 @@ Output ONLY the MOU.'''
 
   static Map<String, String> _generalAffidavitPrompts(String language) {
     return {
-      'system': '''You are generating a GENERAL AFFIDAVIT - sworn statement of facts.
+      'system':
+          '''You are generating a GENERAL AFFIDAVIT - sworn statement of facts.
 Generate professional affidavit format with oath, statements, and signature blocks.
 Language: $language''',
       'user': '''Generate a GENERAL AFFIDAVIT with this information:
@@ -845,7 +865,8 @@ Output ONLY the affidavit.'''
 
   static Map<String, String> _consumerCourtComplaintPrompts(String language) {
     return {
-      'system': '''You are generating a CONSUMER COURT COMPLAINT under Consumer Protection Act 2019.
+      'system':
+          '''You are generating a CONSUMER COURT COMPLAINT under Consumer Protection Act 2019.
 Generate formal court pleading with proper structure, jurisdiction, and relief.
 Language: $language''',
       'user': '''Generate a CONSUMER COURT COMPLAINT with this information:
@@ -885,7 +906,8 @@ Output ONLY the court complaint.'''
 
   static Map<String, String> _vakaltnamaPrompts(String language) {
     return {
-      'system': '''You are generating a VAKALATNAMA (Power of Attorney for legal proceedings).
+      'system':
+          '''You are generating a VAKALATNAMA (Power of Attorney for legal proceedings).
 Generate legal authorization for lawyer to represent in court.
 Language: $language''',
       'user': '''Generate a VAKALATNAMA with this information:
@@ -923,7 +945,8 @@ Output ONLY the vakalatnama.'''
 
   static Map<String, String> _bailApplicationPrompts(String language) {
     return {
-      'system': '''You are generating a BAIL APPLICATION for criminal proceedings.
+      'system':
+          '''You are generating a BAIL APPLICATION for criminal proceedings.
 Generate application for bail with grounds, character references, and personal details.
 Language: $language''',
       'user': '''Generate a BAIL APPLICATION with this information:
@@ -1000,7 +1023,8 @@ Output ONLY the appeal letter.'''
 
   static Map<String, String> _willTestamentPrompts(String language) {
     return {
-      'system': '''You are generating a WILL/TESTAMENT - legal document distributing assets after death.
+      'system':
+          '''You are generating a WILL/TESTAMENT - legal document distributing assets after death.
 Generate professional will with proper structure, heirs, and executor designation.
 Language: $language''',
       'user': '''Generate a WILL/TESTAMENT with this information:
@@ -1043,7 +1067,8 @@ Output ONLY the will.'''
 
   static Map<String, String> _powerOfAttorneyPrompts(String language) {
     return {
-      'system': '''You are generating a POWER OF ATTORNEY - legal authorization to act on behalf of principal.
+      'system':
+          '''You are generating a POWER OF ATTORNEY - legal authorization to act on behalf of principal.
 Generate POA with specified powers and scope.
 Language: $language''',
       'user': '''Generate a POWER OF ATTORNEY with this information:
@@ -1083,7 +1108,8 @@ Output ONLY the POA.'''
 
   static Map<String, String> _giftDeedPrompts(String language) {
     return {
-      'system': '''You are generating a GIFT DEED - legal transfer of property as gift.
+      'system':
+          '''You are generating a GIFT DEED - legal transfer of property as gift.
 Generate deed with donor, recipient, property description, and no consideration.
 Language: $language''',
       'user': '''Generate a GIFT DEED with this information:
@@ -1125,7 +1151,8 @@ Output ONLY the deed.'''
 
   static Map<String, String> _relinquishmentDeedPrompts(String language) {
     return {
-      'system': '''You are generating a RELINQUISHMENT DEED - abandonment of rights over property.
+      'system':
+          '''You are generating a RELINQUISHMENT DEED - abandonment of rights over property.
 Generate deed with clear relinquishment of claims and rights.
 Language: $language''',
       'user': '''Generate a RELINQUISHMENT DEED with this information:
@@ -1162,7 +1189,8 @@ Output ONLY the deed.'''
 
   static Map<String, String> _resignationLetterPrompts(String language) {
     return {
-      'system': '''You are generating a RESIGNATION LETTER from employee to employer.
+      'system':
+          '''You are generating a RESIGNATION LETTER from employee to employer.
 Generate professional resignation with notice period and gratitude.
 Language: $language''',
       'user': '''Generate a RESIGNATION LETTER with this information:
@@ -1195,7 +1223,8 @@ Output ONLY the resignation letter.'''
 
   static Map<String, String> _terminationLetterPrompts(String language) {
     return {
-      'system': '''You are generating an EMPLOYMENT TERMINATION LETTER from employer to employee.
+      'system':
+          '''You are generating an EMPLOYMENT TERMINATION LETTER from employer to employee.
 Generate termination notice with reason, final settlement, and details.
 Language: $language''',
       'user': '''Generate a TERMINATION LETTER with this information:
@@ -1235,7 +1264,8 @@ Output ONLY the termination letter.'''
 
   static Map<String, String> _experienceLetterPrompts(String language) {
     return {
-      'system': '''You are generating an EXPERIENCE CERTIFICATE from employer to employee.
+      'system':
+          '''You are generating an EXPERIENCE CERTIFICATE from employer to employee.
 Generate professional certificate with designation, duration, and achievements.
 Language: $language''',
       'user': '''Generate an EXPERIENCE CERTIFICATE with this information:
@@ -1275,7 +1305,8 @@ Output ONLY the certificate.'''
 
   static Map<String, String> _offerLetterPrompts(String language) {
     return {
-      'system': '''You are generating a JOB OFFER LETTER from employer to candidate.
+      'system':
+          '''You are generating a JOB OFFER LETTER from employer to candidate.
 Generate professional offer with position, salary, benefits, and joining date.
 Language: $language''',
       'user': '''Generate a JOB OFFER LETTER with this information:
@@ -1319,11 +1350,13 @@ Output ONLY the offer letter.'''
 
   static Map<String, String> _defaultDocumentPrompts(String language) {
     return {
-      'system': '''You are generating a legal document based on provided information.
+      'system':
+          '''You are generating a legal document based on provided information.
 Use professional legal formatting and Indian legal terminology.
 Include proper structure with headers, signature blocks, and witness areas.
 Language: $language''',
-      'user': '''Generate a professional legal document in $language with the provided information.
+      'user':
+          '''Generate a professional legal document in $language with the provided information.
 Ensure proper formatting, clear language, and complete structure.
 Output ONLY the document.'''
     };
