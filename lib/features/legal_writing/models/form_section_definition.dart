@@ -1,6 +1,7 @@
 import 'form_field_definition.dart';
 
-typedef SectionVisibilityCondition = bool Function(Map<String, dynamic> formValues);
+typedef SectionVisibilityCondition = bool Function(
+    Map<String, dynamic> formValues);
 
 class FormSectionDefinition {
   final String id;
@@ -22,6 +23,7 @@ class RepeatableSectionDefinition extends FormSectionDefinition {
   final String addButtonLabel;
   final String removeButtonLabel;
   final String itemTitlePrefix;
+  final SectionVisibilityCondition? visibilityCondition;
 
   const RepeatableSectionDefinition({
     required super.id,
@@ -33,7 +35,11 @@ class RepeatableSectionDefinition extends FormSectionDefinition {
     this.addButtonLabel = 'Add Item',
     this.removeButtonLabel = 'Remove',
     this.itemTitlePrefix = 'Item',
+    this.visibilityCondition,
   });
+
+  bool isVisible(Map<String, dynamic> formValues) =>
+      visibilityCondition?.call(formValues) ?? true;
 }
 
 class ConditionalSectionDefinition extends FormSectionDefinition {

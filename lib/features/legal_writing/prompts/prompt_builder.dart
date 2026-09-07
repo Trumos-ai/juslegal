@@ -75,6 +75,9 @@ class PromptBuilder {
     required DocumentFormData formData,
   }) {
     final language = formData.languageCode == 'hi' ? 'Hindi' : 'English';
+    if (definition.promptId == 'rent_agreement') {
+      return _buildRentAgreementPrompt(formData, language);
+    }
     final config = documentTypeFields[definition.promptId];
     final prompts = documentPrompts[definition.promptId];
 
@@ -96,7 +99,8 @@ Safety and accuracy requirements:
 - Do not state that the document is legally verified, filed, or guaranteed to achieve an outcome.''';
 
     var userPrompt = _batchTwoDocumentIds.contains(definition.promptId)
-        ? _buildBatchTwoUserPrompt(definition.promptId, config, formData, language)
+        ? _buildBatchTwoUserPrompt(
+            definition.promptId, config, formData, language)
         : prompts['user']!;
 
     userPrompt = _processOptionalLines(userPrompt, formData);
@@ -112,6 +116,41 @@ Safety and accuracy requirements:
     return PromptResult(
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
+    );
+  }
+
+  PromptResult _buildRentAgreementPrompt(
+      DocumentFormData formData, String language) {
+    final details = _flattenValues(formData.values);
+    return PromptResult(
+      systemPrompt: '''You are a professional Indian legal document drafter.
+Generate only a completed RENT AGREEMENT. Return no conversational text, JSON, Markdown fences, explanations, or use of the word "Draft".
+Use only supplied facts. Never invent user-specific facts, legal citations, registration details, seals, approvals, dates, names, amounts, property particulars, or ID data. Do not expose full identity-document numbers: omit them or identify only the document type and a masked reference.
+Use this structure: RENT AGREEMENT; execution statement; BETWEEN; LANDLORD(S); AND; TENANT(S); WHEREAS; property recital; numbered contractual clauses covering Term of Tenancy, Possession/Handover, Rent & Security Deposit, Utilities & Maintenance, Use of Property, Quiet Enjoyment, and other appropriate standard clauses supported by the supplied facts; signatures for every landlord, tenant, and two witnesses.''',
+      userPrompt:
+          '''Prepare a residential rent agreement in $language using only these supplied details:
+Agreement date: ${details['agreementDate'] ?? ''}
+Execution city: ${details['executionCity'] ?? ''}
+Execution state: ${details['executionState'] ?? ''}
+Property address: ${details['propertyAddress'] ?? ''}
+Furnished items: ${details['furnishedItems'] ?? ''}
+Tenancy start date: ${details['tenancyStartDate'] ?? ''}
+Tenancy end date: ${details['tenancyEndDate'] ?? ''}
+Tenancy period (months): ${details['tenancyPeriodMonths'] ?? ''}
+Monthly rent: ${details['monthlyRent'] ?? ''}
+Rent due day: ${details['rentDueDay'] ?? ''}
+Security deposit: ${details['securityDeposit'] ?? ''}
+Society maintenance included: ${details['societyMaintenanceIncluded'] ?? ''}
+Lock-in period: ${details['lockInPeriod'] ?? ''}
+Annual rent escalation %: ${details['annualRentEscalation'] ?? ''}
+Late payment interest % per month: ${details['latePaymentInterest'] ?? ''}
+Additional clauses: ${details['additionalClauses'] ?? ''}
+LANDLORD(S):
+${details['landlords'] ?? ''}
+TENANT(S):
+${details['tenants'] ?? ''}
+
+Output only the legal document.''',
     );
   }
 
@@ -156,21 +195,17 @@ Output only the completed document in $language.''';
       } else if (value is String) {
         result[key] = value;
       } else if (value is List) {
-        final items = value
-            .asMap()
-            .entries
-            .map((e) {
-              final idx = e.key + 1;
-              final item = e.value;
-              if (item is Map<String, dynamic>) {
-                final itemFields = item.entries
-                    .map((f) => '  ${_readableFieldName(f.key)}: ${f.value}')
-                    .join('\n');
-                return 'Item $idx:\n$itemFields';
-              }
-              return 'Item $idx: $item';
-            })
-            .toList();
+        final items = value.asMap().entries.map((e) {
+          final idx = e.key + 1;
+          final item = e.value;
+          if (item is Map<String, dynamic>) {
+            final itemFields = item.entries
+                .map((f) => '  ${_readableFieldName(f.key)}: ${f.value}')
+                .join('\n');
+            return 'Item $idx:\n$itemFields';
+          }
+          return 'Item $idx: $item';
+        }).toList();
         result[key] = items.join('\n');
       } else {
         result[key] = value.toString();
@@ -179,8 +214,7 @@ Output only the completed document in $language.''';
     return result;
   }
 
-  String _processOptionalLines(
-      String userPrompt, DocumentFormData formData) {
+  String _processOptionalLines(String userPrompt, DocumentFormData formData) {
     final flatValues = _flattenValues(formData.values);
     return userPrompt.split('\n').where((line) {
       final matches = RegExp(r'\{([^}]+)\}').allMatches(line);

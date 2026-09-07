@@ -10,7 +10,14 @@ import 'package:pdf/widgets.dart' as pw;
 import 'legal_pdf_models.dart';
 
 /// Discriminates which layout [PdfBuilder] renders for a [LegalDocument].
-enum DocumentTemplateType { courtComplaint, letter, rti, notice, affidavit }
+enum DocumentTemplateType {
+  courtComplaint,
+  letter,
+  rti,
+  notice,
+  affidavit,
+  rentAgreement
+}
 
 /// Maps a [LegalDocument] to its template type.
 DocumentTemplateType templateTypeOf(LegalDocument doc) {
@@ -25,6 +32,8 @@ DocumentTemplateType templateTypeOf(LegalDocument doc) {
       return DocumentTemplateType.notice;
     case 'affidavit':
       return DocumentTemplateType.affidavit;
+    case 'rent_agreement':
+      return DocumentTemplateType.rentAgreement;
   }
   throw ArgumentError.value(
       doc.documentType, 'documentType', 'Unsupported legal document type');
@@ -116,8 +125,7 @@ pw.Widget _lettered(List<String> values) => pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text('($label)  ',
-                    style:
-                        pw.TextStyle(fontSize: 10, color: PdfColors.black)),
+                    style: pw.TextStyle(fontSize: 10, color: PdfColors.black)),
                 pw.Expanded(
                     child: pw.Text(entry.value,
                         textAlign: pw.TextAlign.justify,
@@ -180,6 +188,8 @@ class PdfBuilder {
         return _buildNotice(pdf, doc as LegalNoticeDocument);
       case DocumentTemplateType.affidavit:
         return _buildAffidavit(pdf, doc as AffidavitDocument);
+      case DocumentTemplateType.rentAgreement:
+        return _buildRentAgreement(pdf, doc as RentAgreementDocument);
     }
   }
 
@@ -221,7 +231,8 @@ class PdfBuilder {
           child: pw.Text('...Opposite Party(ies)',
               style: pw.TextStyle(fontSize: 10, color: PdfColors.black))),
       pw.SizedBox(height: 14),
-      _heading('COMPLAINT UNDER SECTION 35 OF THE\nCONSUMER PROTECTION ACT, 2019',
+      _heading(
+          'COMPLAINT UNDER SECTION 35 OF THE\nCONSUMER PROTECTION ACT, 2019',
           size: 11),
       _section('1. COMPLAINANT DETAILS'),
       _paragraph(
@@ -308,8 +319,7 @@ class PdfBuilder {
 
   // -------------------------------- RTI ------------------------------------
 
-  static Future<Uint8List> _buildRti(
-      pw.Document pdf, RtiDocument doc) async {
+  static Future<Uint8List> _buildRti(pw.Document pdf, RtiDocument doc) async {
     pdf.addPage(_page([
       pw.Text('To,', style: pw.TextStyle(fontSize: 10, color: PdfColors.black)),
       pw.Text('The Public Information Officer',
@@ -432,6 +442,47 @@ class PdfBuilder {
           'Solemnly affirmed before me on ${doc.dateString}\n\nNOTARY PUBLIC / OATH COMMISSIONER',
           style: pw.TextStyle(fontSize: 10, color: PdfColors.black)),
     ]));
+    return pdf.save();
+  }
+
+  static Future<Uint8List> _buildRentAgreement(
+      pw.Document pdf, RentAgreementDocument doc) async {
+    final lines = doc.content
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty);
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.fromLTRB(64, 68, 64, 68),
+      footer: (context) => pw.Align(
+        alignment: pw.Alignment.center,
+        child: pw.Text('Page ${context.pageNumber} of ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ),
+      build: (_) => [
+        pw.Center(
+            child: pw.Text('RENT AGREEMENT',
+                style: pw.TextStyle(
+                    fontSize: 16, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 20),
+        ...lines.map((line) {
+          final isHeading = RegExp(r'^[A-Z][A-Z &/()\-]{2,}$').hasMatch(line);
+          final isClause = RegExp(r'^\d+[.)]').hasMatch(line);
+          return pw.Padding(
+            padding: pw.EdgeInsets.only(bottom: isHeading ? 9 : 7),
+            child: pw.Text(line,
+                textAlign:
+                    isHeading ? pw.TextAlign.center : pw.TextAlign.justify,
+                style: pw.TextStyle(
+                    fontSize: isHeading ? 11 : 10.5,
+                    lineSpacing: 3,
+                    fontWeight: isHeading || isClause
+                        ? pw.FontWeight.bold
+                        : pw.FontWeight.normal)),
+          );
+        }),
+      ],
+    ));
     return pdf.save();
   }
 }

@@ -27,6 +27,7 @@ class DocumentFormRenderer extends ConsumerStatefulWidget {
   final String languageCode;
   final ValueChanged<String> onToneChanged;
   final ValueChanged<String> onLanguageChanged;
+  final ValueChanged<Map<String, String>> onValidationFailed;
 
   const DocumentFormRenderer({
     super.key,
@@ -44,6 +45,7 @@ class DocumentFormRenderer extends ConsumerStatefulWidget {
     required this.languageCode,
     required this.onToneChanged,
     required this.onLanguageChanged,
+    required this.onValidationFailed,
   });
 
   int get totalSteps => definition.sections.length;
@@ -69,11 +71,12 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
       sectionErrors.addAll(validator.validateRepeatableSection(
           currentSection, widget.formData.values));
     } else {
-      sectionErrors
-          .addAll(validator.validateSection(currentSection, widget.formData.values));
+      sectionErrors.addAll(
+          validator.validateSection(currentSection, widget.formData.values));
     }
 
     if (sectionErrors.isNotEmpty) {
+      widget.onValidationFailed(sectionErrors);
       return;
     }
 
@@ -198,7 +201,8 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
                       child: Text(
                         tone,
                         style: TextStyle(
-                          color: selected ? Colors.white : AppColors.primaryNavy,
+                          color:
+                              selected ? Colors.white : AppColors.primaryNavy,
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
@@ -247,6 +251,13 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
   }
 
   Widget _buildSectionContent(FormSectionDefinition section) {
+    if (section is RepeatableSectionDefinition &&
+        !section.isVisible(widget.formData.values)) {
+      return const SizedBox.shrink();
+    }
+    if (section.id == 'review') {
+      return _buildReview();
+    }
     if (section is RepeatableSectionDefinition) {
       final items = widget.formData.getRepeatable(section.id);
       final displayItems = items.isEmpty && section.minItems > 0
@@ -295,6 +306,45 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
       onRepeatableItemChanged: (secId, index, fieldId, value) {},
     );
   }
+
+  Widget _buildReview() {
+    final rows = <Widget>[];
+    widget.formData.values.forEach((key, value) {
+      if (value == null || value.toString().trim().isEmpty) return;
+      if (value is List) {
+        for (var i = 0; i < value.length; i++) {
+          final item = value[i];
+          if (item is Map) {
+            rows.add(Text(
+                '${key == 'landlords' ? 'Landlord' : 'Tenant'} ${i + 1}',
+                style: const TextStyle(fontWeight: FontWeight.w700)));
+            item.forEach((itemKey, itemValue) {
+              if (itemValue.toString().trim().isNotEmpty) {
+                rows.add(Text('${_label(itemKey)}: $itemValue'));
+              }
+            });
+          }
+        }
+      } else {
+        rows.add(Text(
+            '${_label(key)}: ${value == true ? 'Yes' : value == false ? 'No' : value}'));
+      }
+      rows.add(const SizedBox(height: 8));
+    });
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(12)),
+      child:
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows),
+    );
+  }
+
+  String _label(String key) =>
+      key.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
 
   Widget _buildLanguageSelector(BuildContext context) {
     return Column(
@@ -357,7 +407,8 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
         final isCompleted = index < widget.currentStep;
         return Expanded(
           child: Padding(
-            padding: EdgeInsets.only(right: index < widget.definition.sections.length - 1 ? 6 : 0),
+            padding: EdgeInsets.only(
+                right: index < widget.definition.sections.length - 1 ? 6 : 0),
             child: Container(
               height: 4,
               decoration: BoxDecoration(
@@ -378,7 +429,8 @@ class _DocumentFormRendererState extends ConsumerState<DocumentFormRenderer> {
   Widget _buildNavigationButtons(BuildContext context) {
     final canGenerate = widget.isLastStep && !widget.isGenerating;
     final nextLabel = canGenerate ? 'Generate Document' : 'Next';
-    final nextIcon = canGenerate ? Icons.auto_awesome_rounded : Icons.arrow_forward;
+    final nextIcon =
+        canGenerate ? Icons.auto_awesome_rounded : Icons.arrow_forward;
 
     return Row(
       children: [

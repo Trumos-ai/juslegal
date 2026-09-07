@@ -1,219 +1,223 @@
 import '../models/document_definition.dart';
 import '../models/form_field_definition.dart';
 import '../models/form_section_definition.dart';
+import 'package:intl/intl.dart';
 
+/// Uses the shared config-driven engine. Commercial has a ready route but no
+/// fields until its exact requirements are supplied.
 DocumentDefinition get rentAgreementDefinition => DocumentDefinition(
       id: 'rent_agreement',
       title: 'Rent Agreement',
-      description: 'Residential or commercial rental agreement',
-      promptHint: 'Property details, rent amount, duration, terms',
+      description: 'Create a residential rent agreement',
+      promptHint: 'Enter the agreement, property, terms, and party details.',
       category: DocumentCategoryType.agreementsContracts,
       promptId: 'rent_agreement',
       multiStep: true,
       sections: [
         FormSectionDefinition(
-          id: 'agreement',
-          title: 'Agreement Details',
-          description: 'Basic agreement type and general information',
-          fields: [
-            FormFieldDefinition(
-              id: 'agreement_type',
-              label: 'Agreement Type',
-              hint: 'Select Residential or Commercial',
-              required: true,
-              type: FormFieldType.radio,
-              options: const [
-                FieldOption(value: 'residential', label: 'Residential'),
-                FieldOption(value: 'commercial', label: 'Commercial'),
-              ],
-              defaultValue: 'residential',
-            ),
-            FormFieldDefinition(
-              id: 'startDate',
-              label: 'Start Date',
-              hint: 'Agreement start date',
-              required: true,
-              type: FormFieldType.date,
-            ),
-            FormFieldDefinition(
-              id: 'leaseDuration',
-              label: 'Lease Duration',
-              hint: 'e.g. 11 months',
-              required: true,
-              type: FormFieldType.text,
-            ),
-          ],
-        ),
-        FormSectionDefinition(
-          id: 'property',
-          title: 'Property Details',
-          description: 'Information about the rented property',
-          fields: [
-            FormFieldDefinition(
-              id: 'propertyAddress',
-              label: 'Property Address',
-              hint: 'Complete property address',
-              required: true,
-              type: FormFieldType.textarea,
-            ),
-            FormFieldDefinition(
-              id: 'propertyType',
-              label: 'Property Type',
-              hint: 'e.g. Apartment, House, Shop, Office',
-              required: true,
-              type: FormFieldType.text,
-            ),
-          ],
-        ),
+            id: 'agreement_type',
+            title: 'Agreement Type',
+            description: 'Choose the type of premises.',
+            fields: const [
+              FormFieldDefinition(
+                  id: 'agreementType',
+                  label: 'Agreement type',
+                  required: true,
+                  type: FormFieldType.radio,
+                  options: [
+                    FieldOption(value: 'residential', label: 'Residential'),
+                    FieldOption(value: 'commercial', label: 'Commercial')
+                  ],
+                  defaultValue: 'residential'),
+            ]),
         ConditionalSectionDefinition(
-          id: 'commercial_terms',
-          title: 'Commercial Terms',
-          description: 'Additional terms for commercial properties',
-          visibilityCondition: (values) =>
-              values['agreement_type'] == 'commercial',
-          fields: [
-            FormFieldDefinition(
-              id: 'business_nature',
-              label: 'Nature of Business',
-              hint: 'Type of business to be conducted',
-              required: false,
-              type: FormFieldType.text,
-            ),
-            FormFieldDefinition(
-              id: 'gst_applicable',
-              label: 'GST Applicable',
-              hint: 'Is GST applicable on rent?',
-              required: false,
-              type: FormFieldType.toggle,
-              defaultValue: false,
-            ),
-            FormFieldDefinition(
-              id: 'common_area_maintenance',
-              label: 'CAM Charges',
-              hint: 'Common area maintenance charges',
-              required: false,
-              type: FormFieldType.currency,
-            ),
-          ],
-        ),
-        FormSectionDefinition(
-          id: 'terms_rent',
-          title: 'Terms & Rent',
-          description: 'Financial and operational terms',
-          fields: [
-            FormFieldDefinition(
-              id: 'monthlyRent',
-              label: 'Monthly Rent',
-              hint: 'Monthly rent amount',
-              required: true,
-              type: FormFieldType.currency,
-            ),
-            FormFieldDefinition(
-              id: 'securityDeposit',
-              label: 'Security Deposit',
-              hint: 'Security deposit amount',
-              required: true,
-              type: FormFieldType.currency,
-            ),
-            FormFieldDefinition(
-              id: 'maintenanceResponsibility',
-              label: 'Maintenance Responsibility',
-              hint: 'Who is responsible for maintenance?',
-              required: false,
-              type: FormFieldType.text,
-            ),
-            FormFieldDefinition(
-              id: 'specialClauses',
-              label: 'Special Clauses',
-              hint: 'Any other special terms or conditions',
-              required: false,
-              type: FormFieldType.textarea,
-            ),
-          ],
-        ),
+            id: 'agreement',
+            title: 'Agreement',
+            description: 'Execution details for this agreement.',
+            visibilityCondition: _isResidential,
+            fields: const [
+              FormFieldDefinition(
+                  id: 'agreementDate',
+                  label: 'Agreement date',
+                  required: true,
+                  type: FormFieldType.date),
+              FormFieldDefinition(
+                  id: 'executionCity', label: 'Execution city', required: true),
+              FormFieldDefinition(
+                  id: 'executionState',
+                  label: 'Execution state',
+                  required: true),
+            ]),
+        ConditionalSectionDefinition(
+            id: 'property',
+            title: 'Property',
+            visibilityCondition: _isResidential,
+            fields: const [
+              FormFieldDefinition(
+                  id: 'propertyAddress',
+                  label: 'Property address',
+                  required: true,
+                  type: FormFieldType.textarea),
+              FormFieldDefinition(
+                  id: 'furnishedItems',
+                  label: 'Furnished items',
+                  hint: 'Optional — one item per line',
+                  type: FormFieldType.textarea),
+            ]),
+        ConditionalSectionDefinition(
+            id: 'terms_rent',
+            title: 'Terms & Rent',
+            visibilityCondition: _isResidential,
+            fields: const [
+              FormFieldDefinition(
+                  id: 'tenancyStartDate',
+                  label: 'Tenancy start date',
+                  required: true,
+                  type: FormFieldType.date),
+              FormFieldDefinition(
+                  id: 'tenancyPeriodMonths',
+                  label: 'Tenancy period (months)',
+                  required: true,
+                  type: FormFieldType.number,
+                  validationRules: [
+                    ValidationRule(
+                        type: ValidationRule.min,
+                        param: 1,
+                        message: 'Tenancy period must be at least 1 month')
+                  ]),
+              FormFieldDefinition(
+                  id: 'tenancyEndDate',
+                  label: 'Tenancy end date',
+                  hint: 'Calculated automatically',
+                  type: FormFieldType.date,
+                  isReadOnly: true),
+              FormFieldDefinition(
+                  id: 'monthlyRent',
+                  label: 'Monthly rent',
+                  required: true,
+                  type: FormFieldType.currency),
+              FormFieldDefinition(
+                  id: 'rentDueDay',
+                  label: 'Rent due day',
+                  required: true,
+                  type: FormFieldType.number,
+                  validationRules: [
+                    ValidationRule(
+                        type: ValidationRule.min,
+                        param: 1,
+                        message: 'Enter a day from 1 to 31'),
+                    ValidationRule(
+                        type: ValidationRule.max,
+                        param: 31,
+                        message: 'Enter a day from 1 to 31')
+                  ]),
+              FormFieldDefinition(
+                  id: 'securityDeposit',
+                  label: 'Security deposit',
+                  required: true,
+                  type: FormFieldType.currency),
+              FormFieldDefinition(
+                  id: 'societyMaintenanceIncluded',
+                  label: 'Society maintenance included?',
+                  type: FormFieldType.toggle,
+                  defaultValue: false),
+              FormFieldDefinition(
+                  id: 'lockInPeriod',
+                  label: 'Lock-in period',
+                  hint: 'Optional (months)',
+                  type: FormFieldType.number),
+              FormFieldDefinition(
+                  id: 'annualRentEscalation',
+                  label: 'Annual rent escalation %',
+                  type: FormFieldType.number),
+              FormFieldDefinition(
+                  id: 'latePaymentInterest',
+                  label: 'Late payment interest % per month',
+                  type: FormFieldType.number),
+              FormFieldDefinition(
+                  id: 'additionalClauses',
+                  label: 'Additional clauses',
+                  type: FormFieldType.textarea),
+            ]),
         RepeatableSectionDefinition(
-          id: 'landlords',
-          title: 'Landlords',
-          description: 'Landlord / Owner party details',
-          itemTitlePrefix: 'Landlord',
-          addButtonLabel: 'Add Landlord',
-          removeButtonLabel: 'Remove Landlord',
-          minItems: 1,
-          maxItems: 10,
-          fields: [
-            FormFieldDefinition(
-              id: 'landlordName',
-              label: 'Landlord Name',
-              hint: 'Full name of landlord',
-              required: true,
-              type: FormFieldType.text,
-            ),
-            FormFieldDefinition(
-              id: 'landlordAddress',
-              label: 'Landlord Address',
-              hint: 'Landlord address',
-              required: true,
-              type: FormFieldType.textarea,
-            ),
-            FormFieldDefinition(
-              id: 'landlordPhone',
-              label: 'Landlord Phone',
-              hint: 'Contact phone number',
-              required: true,
-              type: FormFieldType.text,
-              validationRules: const [
-                ValidationRule(
-                  type: ValidationRule.phone,
-                  message: 'Enter valid 10-digit phone number',
-                ),
-              ],
-            ),
-          ],
-        ),
+            id: 'landlords',
+            title: 'Landlords',
+            description: 'Add every landlord who will execute the agreement.',
+            visibilityCondition: _isResidential,
+            itemTitlePrefix: 'Landlord',
+            addButtonLabel: 'Add landlord',
+            removeButtonLabel: 'Remove',
+            fields: _partyFields),
         RepeatableSectionDefinition(
-          id: 'tenants',
-          title: 'Tenants',
-          description: 'Tenant / Lessee party details',
-          itemTitlePrefix: 'Tenant',
-          addButtonLabel: 'Add Tenant',
-          removeButtonLabel: 'Remove Tenant',
-          minItems: 1,
-          maxItems: 10,
-          fields: [
-            FormFieldDefinition(
-              id: 'tenantName',
-              label: 'Tenant Name',
-              hint: 'Full name of tenant',
-              required: true,
-              type: FormFieldType.text,
-            ),
-            FormFieldDefinition(
-              id: 'tenantAddress',
-              label: 'Tenant Address',
-              hint: 'Tenant address',
-              required: true,
-              type: FormFieldType.textarea,
-            ),
-            FormFieldDefinition(
-              id: 'tenantPhone',
-              label: 'Tenant Phone',
-              hint: 'Contact phone number',
-              required: true,
-              type: FormFieldType.text,
-              validationRules: const [
-                ValidationRule(
-                  type: ValidationRule.phone,
-                  message: 'Enter valid 10-digit phone number',
-                ),
-              ],
-            ),
-          ],
-        ),
+            id: 'tenants',
+            title: 'Tenants',
+            description: 'Add every tenant who will execute the agreement.',
+            visibilityCondition: _isResidential,
+            itemTitlePrefix: 'Tenant',
+            addButtonLabel: 'Add tenant',
+            removeButtonLabel: 'Remove',
+            fields: _partyFields),
+        ConditionalSectionDefinition(
+            id: 'commercial_ready',
+            title: 'Commercial Rent Agreement',
+            description:
+                'Commercial fields will be added when their exact requirements are available.',
+            visibilityCondition: (values) =>
+                values['agreementType'] == 'commercial'),
         FormSectionDefinition(
-          id: 'review',
-          title: 'Review',
-          description: 'Review and generate your document',
-          fields: const [],
-        ),
+            id: 'review',
+            title: 'Review',
+            description: 'Review the supplied details before generation.'),
       ],
     );
+
+bool _isResidential(Map<String, dynamic> values) =>
+    values['agreementType'] == 'residential';
+
+String? calculateResidentialTenancyEndDate(String startDate, int months) {
+  if (months < 1) return null;
+  try {
+    final start = DateFormat('dd MMM yyyy').parseStrict(startDate);
+    final monthIndex = start.month - 1 + months;
+    final year = start.year + monthIndex ~/ 12;
+    final month = monthIndex % 12 + 1;
+    final lastDayOfTargetMonth = DateTime(year, month + 1, 0).day;
+    final afterTerm = DateTime(year, month,
+        start.day > lastDayOfTargetMonth ? lastDayOfTargetMonth : start.day);
+    return DateFormat('dd MMM yyyy')
+        .format(afterTerm.subtract(const Duration(days: 1)));
+  } on FormatException {
+    return null;
+  }
+}
+
+const _partyFields = [
+  FormFieldDefinition(
+      id: 'partyType',
+      label: 'Party type',
+      required: true,
+      type: FormFieldType.dropdown,
+      options: [
+        FieldOption(value: 'individual', label: 'Individual'),
+        FieldOption(value: 'organization', label: 'Organization')
+      ]),
+  FormFieldDefinition(id: 'fullName', label: 'Full name', required: true),
+  FormFieldDefinition(
+      id: 'idType',
+      label: 'ID type',
+      required: true,
+      type: FormFieldType.dropdown,
+      options: [
+        FieldOption(value: 'aadhaar', label: 'Aadhaar'),
+        FieldOption(value: 'pan', label: 'PAN'),
+        FieldOption(value: 'passport', label: 'Passport'),
+        FieldOption(value: 'voter_id', label: 'Voter ID'),
+        FieldOption(value: 'other', label: 'Other')
+      ]),
+  FormFieldDefinition(id: 'idNumber', label: 'ID number', required: true),
+  FormFieldDefinition(
+      id: 'currentAddress',
+      label: 'Current address',
+      required: true,
+      type: FormFieldType.textarea),
+];

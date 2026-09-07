@@ -28,7 +28,8 @@ class _FieldRendererState extends State<FieldRenderer> {
   @override
   void initState() {
     super.initState();
-    _textController = TextEditingController(text: widget.value?.toString() ?? '');
+    _textController =
+        TextEditingController(text: widget.value?.toString() ?? '');
     _focusNode = FocusNode();
   }
 
@@ -129,7 +130,9 @@ class _FieldRendererState extends State<FieldRenderer> {
           controller: _textController,
           focusNode: _focusNode,
           onChanged: (v) => widget.onChanged(v),
-          decoration: _decoration(widget.field.hint ?? 'Enter ${widget.field.label}'),
+          readOnly: widget.field.isReadOnly,
+          decoration:
+              _decoration(widget.field.hint ?? 'Enter ${widget.field.label}'),
           maxLines: 1,
         );
       case FormFieldType.textarea:
@@ -137,8 +140,10 @@ class _FieldRendererState extends State<FieldRenderer> {
           controller: _textController,
           focusNode: _focusNode,
           onChanged: (v) => widget.onChanged(v),
+          readOnly: widget.field.isReadOnly,
           maxLines: _isTextarea ? 3 : 1,
-          decoration: _decoration(widget.field.hint ?? 'Enter ${widget.field.label}'),
+          decoration:
+              _decoration(widget.field.hint ?? 'Enter ${widget.field.label}'),
         );
       case FormFieldType.number:
         return TextField(
@@ -146,6 +151,7 @@ class _FieldRendererState extends State<FieldRenderer> {
           focusNode: _focusNode,
           keyboardType: TextInputType.number,
           onChanged: (v) => widget.onChanged(v),
+          readOnly: widget.field.isReadOnly,
           decoration: _decoration(widget.field.hint ?? 'Enter number'),
         );
       case FormFieldType.currency:
@@ -154,6 +160,7 @@ class _FieldRendererState extends State<FieldRenderer> {
           focusNode: _focusNode,
           keyboardType: TextInputType.number,
           onChanged: (v) => widget.onChanged(v),
+          readOnly: widget.field.isReadOnly,
           decoration: _decoration(widget.field.hint ?? 'Enter amount').copyWith(
             prefixText: '₹ ',
             prefixStyle: TextStyle(color: AppColors.textSecondary),
@@ -168,6 +175,7 @@ class _FieldRendererState extends State<FieldRenderer> {
             _textController.text = formatted;
             widget.onChanged(formatted);
           },
+          readOnly: widget.field.isReadOnly,
         );
       case FormFieldType.dropdown:
         return DropdownButtonFormField<String>(
@@ -241,11 +249,13 @@ class _DateField extends StatelessWidget {
   final TextEditingController controller;
   final InputDecoration decoration;
   final ValueChanged<DateTime> onDateSelected;
+  final bool readOnly;
 
   const _DateField({
     required this.controller,
     required this.decoration,
     required this.onDateSelected,
+    this.readOnly = false,
   });
 
   @override
@@ -253,32 +263,35 @@ class _DateField extends StatelessWidget {
     return TextField(
       controller: controller,
       readOnly: true,
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: DateTime.now(),
-          firstDate: DateTime(1900),
-          lastDate: DateTime(2100),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: ColorScheme.light(
-                  primary: AppColors.trustBlue,
-                  onPrimary: Colors.white,
-                  surface: Colors.white,
-                  onSurface: AppColors.primaryNavy,
-                ),
-              ),
-              child: child!,
-            );
-          },
-        );
-        if (picked != null) {
-          onDateSelected(picked);
-        }
-      },
+      onTap: readOnly
+          ? null
+          : () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now(),
+                firstDate: DateTime(1900),
+                lastDate: DateTime(2100),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.light(
+                        primary: AppColors.trustBlue,
+                        onPrimary: Colors.white,
+                        surface: Colors.white,
+                        onSurface: AppColors.primaryNavy,
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
+              );
+              if (picked != null) {
+                onDateSelected(picked);
+              }
+            },
       decoration: decoration.copyWith(
-        suffixIcon: Icon(Icons.calendar_month_outlined, color: AppColors.textSecondary),
+        suffixIcon:
+            Icon(Icons.calendar_month_outlined, color: AppColors.textSecondary),
       ),
     );
   }

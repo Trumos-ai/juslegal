@@ -116,6 +116,7 @@ class FormValidator {
     Map<String, dynamic> formValues,
   ) {
     final errors = <String, String>{};
+    if (!section.isVisible(formValues)) return errors;
     final items = formValues[section.id];
 
     if (items is List) {
@@ -167,8 +168,8 @@ class FormValidator {
     required DocumentFormData formData,
   }) {
     return validateDocument(
-          definition: definition,
-          formData: formData,
-        ).isEmpty;
+      definition: definition,
+      formData: formData,
+    ).isEmpty;
   }
 }

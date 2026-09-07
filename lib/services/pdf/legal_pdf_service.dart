@@ -26,11 +26,12 @@ class LegalPdfService {
       _buildPdf(doc, locale);
 
   static Future<Uint8List> _buildPdf(LegalDocument doc, String locale) async {
-    final pdf = pw.Document(theme: await _buildTheme(locale));
+    final pdf = pw.Document(theme: await _buildTheme(locale, doc.documentType));
     return PdfBuilder.build(pdf, doc);
   }
 
-  static Future<pw.ThemeData> _buildTheme(String locale) async {
+  static Future<pw.ThemeData> _buildTheme(
+      String locale, String documentType) async {
     final pw.Font base;
     final pw.Font bold;
 
@@ -41,6 +42,9 @@ class LegalPdfService {
           await rootBundle.load('assets/Fonts/NotoSansDevanagari-Bold.ttf');
       base = pw.Font.ttf(regularData);
       bold = pw.Font.ttf(boldData);
+    } else if (documentType == 'rent_agreement') {
+      base = pw.Font.times();
+      bold = pw.Font.timesBold();
     } else {
       base = pw.Font.helvetica();
       bold = pw.Font.helveticaBold();

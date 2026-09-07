@@ -175,3 +175,25 @@ class AffidavitDocument extends LegalDocument {
   @override
   PersonInfo get author => deponent;
 }
+
+/// Keeps Rent Agreement rendering isolated from legacy document templates.
+class RentAgreementDocument extends LegalDocument {
+  RentAgreementDocument({
+    required super.title,
+    required this.content,
+    required this.landlords,
+    required this.tenants,
+    super.date,
+  });
+
+  final String content;
+  final List<String> landlords;
+  final List<String> tenants;
+
+  @override
+  String get documentType => 'rent_agreement';
+
+  @override
+  PersonInfo get author =>
+      PersonInfo(fullName: landlords.isEmpty ? '' : landlords.first);
+}

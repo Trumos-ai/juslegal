@@ -20,7 +20,8 @@ class FieldOption {
   });
 }
 
-typedef FieldVisibilityCondition = bool Function(Map<String, dynamic> formValues);
+typedef FieldVisibilityCondition = bool Function(
+    Map<String, dynamic> formValues);
 
 class ValidationRule {
   final String type;
@@ -54,6 +55,7 @@ class FormFieldDefinition {
   final dynamic defaultValue;
   final FieldVisibilityCondition? visibilityCondition;
   final bool isNested;
+  final bool isReadOnly;
 
   const FormFieldDefinition({
     required this.id,
@@ -66,6 +68,7 @@ class FormFieldDefinition {
     this.defaultValue,
     this.visibilityCondition,
     this.isNested = false,
+    this.isReadOnly = false,
   });
 
   FormFieldDefinition copyWith({
@@ -79,6 +82,7 @@ class FormFieldDefinition {
     dynamic defaultValue,
     FieldVisibilityCondition? visibilityCondition,
     bool? isNested,
+    bool? isReadOnly,
   }) {
     return FormFieldDefinition(
       id: id ?? this.id,
@@ -91,6 +95,7 @@ class FormFieldDefinition {
       defaultValue: defaultValue ?? this.defaultValue,
       visibilityCondition: visibilityCondition ?? this.visibilityCondition,
       isNested: isNested ?? this.isNested,
+      isReadOnly: isReadOnly ?? this.isReadOnly,
     );
   }
 

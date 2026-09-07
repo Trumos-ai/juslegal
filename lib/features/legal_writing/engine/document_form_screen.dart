@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:juslegal/core/core.dart';
 import '../models/document_definition.dart';
+import '../definitions/rent_agreement.dart';
 import '../models/document_form_data.dart';
 import '../models/form_section_definition.dart';
 import 'document_form_renderer.dart';
@@ -33,8 +34,7 @@ class DocumentFormScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<DocumentFormScreen> createState() =>
-      _DocumentFormScreenState();
+  ConsumerState<DocumentFormScreen> createState() => _DocumentFormScreenState();
 }
 
 class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
@@ -55,6 +55,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   void initState() {
     super.initState();
     _formData = DocumentFormData(documentId: widget.definition.id);
+    _initializeDefaults();
     _initializeRepeatableSections();
     _resultController.addListener(() {
       if (_result != _resultController.text) {
@@ -63,6 +64,16 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
         });
       }
     });
+  }
+
+  void _initializeDefaults() {
+    for (final section in widget.definition.sections) {
+      for (final field in section.fields) {
+        if (field.defaultValue != null) {
+          _formData = _formData.setValue(field.id, field.defaultValue);
+        }
+      }
+    }
   }
 
   void _initializeRepeatableSections() {
@@ -91,8 +102,21 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   void _setFieldValue(String fieldId, dynamic value) {
     setState(() {
       _formData = _formData.setValue(fieldId, value);
+      if (widget.definition.id == 'rent_agreement' &&
+          (fieldId == 'tenancyStartDate' || fieldId == 'tenancyPeriodMonths')) {
+        _updateTenancyEndDate();
+      }
       _errors = const {};
     });
+  }
+
+  void _updateTenancyEndDate() {
+    final start = _formData.getValue('tenancyStartDate')?.toString();
+    final months = int.tryParse(
+        _formData.getValue('tenancyPeriodMonths')?.toString() ?? '');
+    if (start == null || months == null || months < 1) return;
+    _formData = _formData.setValue('tenancyEndDate',
+        calculateResidentialTenancyEndDate(start, months) ?? '');
   }
 
   void _addRepeatableItem() {
@@ -117,13 +141,20 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(0,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut);
+            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
     });
   }
 
   Future<void> _generate() async {
+    if (widget.definition.id == 'rent_agreement' &&
+        _formData.getValue('agreementType') == 'commercial') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content:
+            Text('Commercial Rent Agreement fields are not available yet.'),
+      ));
+      return;
+    }
     final validator = const FormValidator();
     final errors = validator.validateDocument(
       definition: widget.definition,
@@ -198,6 +229,21 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   }
 
   LegalDocument _pdfDocumentFor() {
+    if (widget.definition.id == 'rent_agreement') {
+      List<String> names(String key) => _formData
+          .getRepeatable(key)
+          .map((party) => party['fullName']?.toString() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+      return RentAgreementDocument(
+        title: 'Rent Agreement',
+        content: _resultController.text.trim().isEmpty
+            ? _result
+            : _resultController.text,
+        landlords: names('landlords'),
+        tenants: names('tenants'),
+      );
+    }
     final values = _flattenValuesForPdf(_formData.values);
     final name = values['Sender'] ??
         values['applicant_name'] ??
@@ -212,8 +258,11 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
           values['Property Address'] ??
           'Address not provided',
     );
-    final body = _resultController.text.trim().isEmpty ? _result : _resultController.text;
-    final statements = body.split('\n').where((s) => s.trim().isNotEmpty).toList();
+    final body = _resultController.text.trim().isEmpty
+        ? _result
+        : _resultController.text;
+    final statements =
+        body.split('\n').where((s) => s.trim().isNotEmpty).toList();
     final id = widget.definition.id.toLowerCase();
     if (id.contains('affidavit')) {
       return AffidavitDocument(
@@ -255,15 +304,11 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
         title: widget.definition.title,
         sender: person,
         recipient: RecipientInfo(
-          name: values['Recipient'] ??
-              values['Opposite Party'] ??
-              'Recipient',
+          name: values['Recipient'] ?? values['Opposite Party'] ?? 'Recipient',
         ),
         backgroundFacts: statements,
         legalViolation: '',
-        reliefDemanded: [
-          values['Relief Sought'] ?? 'Relief as stated above'
-        ],
+        reliefDemanded: [values['Relief Sought'] ?? 'Relief as stated above'],
       );
     }
     return FormalLetterDocument(
@@ -301,6 +346,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
       _isEditing = false;
       _errors = const {};
       _formData = DocumentFormData(documentId: widget.definition.id);
+      _initializeDefaults();
       _initializeRepeatableSections();
     });
     widget.onBackToSelection?.call();
@@ -352,9 +398,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
-            child: _isResultStep
-                ? _buildResultStep()
-                : _buildCategoryStep(),
+            child: _isResultStep ? _buildResultStep() : _buildCategoryStep(),
           ),
         ),
       ),
@@ -390,6 +434,11 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
               _languageCode = code;
             });
           },
+          onValidationFailed: (errors) {
+            setState(() {
+              _errors = errors;
+            });
+          },
         ),
       ],
     );
@@ -402,8 +451,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
         Row(
           children: [
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.primaryNavy.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(20),
@@ -433,8 +481,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
             ),
             const SizedBox(width: 8),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.trustBlue.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(20),
@@ -507,10 +554,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
                     Expanded(
                       child: Text(
                         widget.definition.title.toUpperCase(),
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall
-                            ?.copyWith(
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: AppColors.primaryNavy,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.5,
