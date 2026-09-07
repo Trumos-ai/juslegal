@@ -305,13 +305,6 @@ class _HomeContent extends StatelessWidget {
         category: 'documents',
       ),
       _AiFeatureTool(
-        title: l10n.toolDocumentCreationTitle,
-        description: l10n.toolDocumentCreationDesc,
-        icon: Icons.note_add_outlined,
-        route: '/home/document-creation',
-        category: 'documents',
-      ),
-      _AiFeatureTool(
         title: l10n.toolDocumentReviewTitle,
         description: l10n.toolDocumentReviewDesc,
         icon: Icons.fact_check_outlined,

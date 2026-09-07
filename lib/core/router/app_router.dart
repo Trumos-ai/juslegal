@@ -12,7 +12,6 @@ import '../../screens/auth_flow_screens.dart';
 import '../../screens/home_screen.dart';
 import '../../screens/ai_legal_chat_screen.dart';
 import '../../screens/case_analysis_screen.dart';
-import '../../screens/document_creation_screen.dart';
 import '../../screens/document_review_screen.dart';
 import '../../screens/legal_advice_screen.dart';
 import '../../screens/legal_terms_screen.dart';
@@ -56,7 +55,6 @@ class AppRouteNames {
   static const String homeCaseAnalysis = 'caseAnalysis';
   static const String homeLegalTerms = 'legalTerms';
   static const String homeLegalWriting = 'legalWriting';
-  static const String homeDocumentCreation = 'documentCreation';
   static const String homeDocumentReview = 'documentReview';
   // TODO: complete before enabling
   // static const String homeContractNegotiation = 'contractNegotiation';
@@ -251,11 +249,6 @@ GoRouter buildRouter({
             path: 'legal-writing',
             name: AppRouteNames.homeLegalWriting,
             builder: (context, state) => const LegalWritingScreen(),
-          ),
-          GoRoute(
-            path: 'document-creation',
-            name: AppRouteNames.homeDocumentCreation,
-            builder: (context, state) => const DocumentCreationScreen(),
           ),
           GoRoute(
             path: 'document-review',

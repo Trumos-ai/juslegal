@@ -149,6 +149,21 @@ class LegalWritingNotifier extends Notifier<LegalWritingState> {
     state = state.copyWith(loading: value);
   }
 
+  void startGenerating() {
+    state = state.copyWith(
+      loading: true,
+      step: 2,
+      error: null,
+    );
+  }
+
+  void finishGenerating(String result) {
+    state = state.copyWith(
+      result: result,
+      loading: false,
+    );
+  }
+
   void setResult(String result) {
     state = state.copyWith(
       result: result,

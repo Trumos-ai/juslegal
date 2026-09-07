@@ -4,18 +4,13 @@ import 'package:juslegal/core/core.dart';
 import '../models/document_category_model.dart';
 import '../models/document_type_model.dart';
 import '../services/legal_writing_handler.dart';
-import '../services/ai_service.dart';
-import '../services/pdf/legal_pdf_models.dart';
-import '../services/pdf/legal_pdf_service.dart';
+import '../constants/document_fields.dart';
 import '../widgets/legal_writing/category_step.dart';
-import '../widgets/legal_writing/form_step.dart';
-import '../widgets/legal_writing/result_step.dart';
-
-final _aiServiceProvider = Provider<AIService>((ref) {
-  final svc = AIService();
-  svc.initialize();
-  return svc;
-});
+import '../features/legal_writing/definitions/document_registry.dart';
+import '../features/legal_writing/engine/document_form_screen.dart';
+import '../features/legal_writing/models/document_definition.dart';
+import '../features/legal_writing/models/form_field_definition.dart';
+import '../features/legal_writing/models/form_section_definition.dart';
 
 class LegalWritingScreen extends ConsumerStatefulWidget {
   const LegalWritingScreen({super.key});
@@ -26,413 +21,150 @@ class LegalWritingScreen extends ConsumerStatefulWidget {
 
 class _LegalWritingScreenState extends ConsumerState<LegalWritingScreen> {
   final _scrollController = ScrollController();
-  final Map<String, TextEditingController> _fieldControllers = {};
-  final _extraDetailsController = TextEditingController();
-  final _resultController = TextEditingController();
 
   @override
   void dispose() {
     _scrollController.dispose();
-    _extraDetailsController.dispose();
-    for (final c in _fieldControllers.values) {
-      c.dispose();
-    }
-    _resultController.dispose();
     super.dispose();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _resultController.addListener(() {
-      final state = ref.read(legalWritingProvider);
-      if (state.result != _resultController.text) {
-        ref.read(legalWritingProvider.notifier).updateResult(_resultController.text);
-      }
-    });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncControllersWithState();
-  }
-
-  void _syncControllersWithState() {
-    final state = ref.watch(legalWritingProvider);
-
-    if (_resultController.text != state.result) {
-      _resultController.text = state.result;
-    }
-
-    if (_extraDetailsController.text != state.extraDetails) {
-      _extraDetailsController.text = state.extraDetails;
-    }
-
-    if (state.type != null) {
-      for (final field in state.type!.requiredFields) {
-        if (!_fieldControllers.containsKey(field)) {
-          _fieldControllers[field] = TextEditingController();
-        }
-        if (_fieldControllers[field]!.text !=
-            (state.fieldValues[field] ?? '')) {
-          _fieldControllers[field]!.text = state.fieldValues[field] ?? '';
-        }
-      }
-    }
-  }
-
   void _selectType(DocumentCategory category, DocumentType type) {
-    ref.read(legalWritingProvider.notifier).selectType(category, type);
-
-    _initializeControllers(type);
-  }
-
-  void _initializeControllers(DocumentType type) {
-    for (final c in _fieldControllers.values) {
-      c.dispose();
-    }
-    _fieldControllers.clear();
-
-    for (final field in type.requiredFields) {
-      _fieldControllers[field] = TextEditingController();
-    }
-  }
-
-  bool _formValid(LegalWritingState state) {
-    if (state.type == null) return false;
-    for (final field in state.type!.requiredFields) {
-      final value = state.fieldValues[field] ?? '';
-      if (value.trim().isEmpty) return false;
-    }
-    return true;
-  }
-
-  String _buildPrompt(LegalWritingState state) {
-    final type = state.type!;
-    final fieldsText = type.requiredFields
-        .map((field) =>
-            '$field: ${(state.fieldValues[field] ?? '').trim().isEmpty ? "Not provided" : (state.fieldValues[field] ?? '').trim()}')
-        .join('\n');
-    final extra = state.extraDetails.trim();
-
-    return '''
-You are a professional Indian legal document drafter. 
-Draft a complete, professional "${type.label}" document under Indian law.
-
-DOCUMENT TYPE: ${type.label}
-CATEGORY: ${state.category!.label}
-TONE: ${state.tone}
-
-DETAILS PROVIDED:
-$fieldsText
-${extra.isNotEmpty ? '\nADDITIONAL DETAILS:\n$extra' : ''}
-
-INSTRUCTIONS:
-- Write ONLY the complete document - no explanations, no preamble, no notes after
-- Use proper legal formatting with headings, clauses, and sections as appropriate
-- Use formal legal language appropriate for India
-- Fill ALL details using the information above
-- For missing details use sensible placeholders like [Full Name], [Address], [Date]
-- Include proper signature blocks, witness sections where applicable
-- Cite relevant Indian law or act where appropriate
-- Make it ready to use - professionally formatted
-- Tone: ${state.tone}
-
-Now write the complete ${type.label}:
-''';
-  }
-
-  Future<void> _generate() async {
-    final state = ref.read(legalWritingProvider);
-    if (!_formValid(state)) return;
-    FocusScope.of(context).unfocus();
-
-    ref.read(legalWritingProvider.notifier).setLoading(true);
-
-    await Future.delayed(const Duration(milliseconds: 100));
-    if (mounted && _scrollController.hasClients) {
-      _scrollController.animateTo(0,
-          duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-    }
-
-    try {
-      final firstValue = state.type!.requiredFields.isNotEmpty
-          ? (state.fieldValues[state.type!.requiredFields.first] ?? '')
-          : '';
-
-      final result = await ref.read(_aiServiceProvider).generateLetter(
-            letterType: state.type!.id,
-            category: state.category!.label,
-            problemDescription: _buildPrompt(state),
-            userRights: state.fieldValues['Rights'] ?? state.fieldValues['User Rights'] ?? '',
-            applicableLaw: state.fieldValues['Law'] ?? state.fieldValues['Applicable Law'] ?? 'Applicable Indian Laws',
-            steps: (state.fieldValues['Steps'] ?? state.fieldValues['Action Steps'] ?? '').split('\n').where((s) => s.trim().isNotEmpty).toList(),
-            senderName: firstValue.trim(),
-            senderAddress: state.fieldValues['Address']?.trim() ??
-                state.fieldValues['Property Address']?.trim() ??
-                '',
-            opponentName: state.fieldValues['Recipient']?.trim() ??
-                state.fieldValues['Opposite Party']?.trim() ??
-                state.fieldValues['Client']?.trim() ??
-                state.fieldValues['Employer']?.trim() ??
-                '[Recipient]',
-            incidentDate: state.fieldValues['Date']?.trim() ??
-                state.fieldValues['Incident Date']?.trim() ??
-                state.fieldValues['Start Date']?.trim() ??
-                '',
-            languageCode: state.languageCode,
-          );
-
-      if (!mounted) return;
-
-      String clean = result.trim();
-      if (clean.startsWith('```')) {
-        final lines = clean.split('\n');
-        if (lines.length > 2) {
-          clean = lines.sublist(1, lines.length - 1).join('\n');
-        }
-      }
-      clean = clean.replaceAll(RegExp(r'```[a-zA-Z]*\n?'), '').replaceAll('```', '').trim();
-
-      _resultController.text = clean;
-      ref.read(legalWritingProvider.notifier).setResult(clean);
-    } catch (e) {
-      if (!mounted) return;
-      ref.read(legalWritingProvider.notifier).setError(e.toString());
-    }
-  }
-
-  String _fieldHint(String field) {
-    const hints = {
-      'Sender': 'Your full name',
-      'Recipient': 'Full name or company name',
-      'Dispute Details': 'Describe the dispute clearly',
-      'Relief Sought': 'e.g. Full refund of Rs.5000',
-      'Company Name': 'e.g. Amazon India Pvt Ltd',
-      'Landlord': 'Full name of landlord',
-      'Tenant': 'Full name of tenant',
-      'Property Address': 'Complete property address',
-      'Rent': 'Monthly rent amount e.g. Rs.15,000',
-      'Duration': 'e.g. 11 months from Jan 2024',
-      'Party 1': 'First party full name',
-      'Party 2': 'Second party full name',
-      'Deponent Name': 'Your full name',
-      'Facts to Declare': 'State the facts clearly',
-      'Assets': 'List your assets',
-      'Beneficiaries': 'Who inherits what',
-      'Principal': 'Person giving the power',
-      'Agent': 'Person receiving the power',
-      'Powers Granted': 'What they can do on your behalf',
-      'Employee Name': 'Full name of employee',
-      'Role': 'Job title / designation',
-      'Company': 'Company name',
-      'Last Working Day': 'e.g. 30 June 2024',
-    };
-    return hints[field] ?? 'Enter $field';
-  }
-
-  LegalDocument _pdfDocumentFor(LegalWritingState state) {
-    final values = state.fieldValues;
-    final type = state.type!;
-    final name = values['Sender'] ??
-        values['applicant_name'] ??
-        values['Deponent Name'] ??
-        values['Complainant'] ??
-        values['Applicant'] ??
-        (values.isNotEmpty ? values.values.first : 'Applicant');
-    final person = PersonInfo(
-        fullName: name,
-        address: values['Address'] ??
-            values['applicant_address'] ??
-            values['Property Address'] ??
-            'Address not provided');
-    final body = _resultController.text.trim().isEmpty
-        ? state.result
-        : _resultController.text;
-    final statements = body.split('\n').where((s) => s.trim().isNotEmpty).toList();
-    final id = type.id.toLowerCase();
-    if (id.contains('affidavit')) {
-      return AffidavitDocument(
-          title: type.label,
-          deponent: person,
-          purpose: type.label,
-          statements: statements);
-    }
-    if (id.contains('rti')) {
-      return RtiDocument(
-          title: type.label,
-          applicant: person,
-          publicAuthority: RecipientInfo(
-              name: values['Department'] ?? values['Public Authority'] ?? '',
-              designation: 'Public Information Officer',
-              address: values['PIO Address'] ?? ''),
-          informationSought: statements,
-          timePeriod: values['Period'] ?? '',
-          preferredFormat: values['Preferred Format'] ?? '',
-          feePaid: values['Fee Method'] ?? '');
-    }
-    if (id.contains('complaint')) {
-      return CourtComplaintDocument(
-          title: type.label,
-          district: '[District]',
-          state: '[State]',
-          complainant: person,
-          oppositeParty: OppositePartyInfo(
-              name: values['Opposite Party'] ?? 'Opposite Party'),
-          reliefSought: [values['Relief Sought'] ?? '']);
-    }
-    if (id.contains('notice')) {
-      return LegalNoticeDocument(
-          title: type.label,
-          sender: person,
-          recipient: RecipientInfo(
-              name: values['Recipient'] ??
-                  values['Opposite Party'] ??
-                  'Recipient'),
-          backgroundFacts: statements,
-          legalViolation: '',
-          reliefDemanded: [
-            values['Relief Sought'] ?? 'Relief as stated above'
-          ]);
-    }
-    return FormalLetterDocument(
-        title: type.label,
-        sender: person,
-        recipient: RecipientInfo(
-            name: values['Recipient'] ?? values['Client'] ?? 'Recipient'),
-        subject: type.label,
-        bodyParagraphs: [body]);
-  }
-
-  InputDecoration _inputDecoration(String hint) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-      filled: true,
-      fillColor: AppColors.surface,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.border),
+    final definition = getDocumentDefinitionById(type.id)!;
+    final docDef = documentTypeFields[type.id];
+    final effectiveDefinition = definition.copyWith(
+      sections: _sectionsWithConfiguredFields(
+        definition,
+        type,
+        docDef,
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.border),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.legalGold, width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.all(12),
     );
+    ref.read(legalWritingProvider.notifier).selectType(category, type);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DocumentFormScreen(
+          definition: effectiveDefinition,
+          categoryIcon: category.icon,
+          categoryLabel: category.label,
+          onBackToSelection: () {
+            ref.read(legalWritingProvider.notifier).resetToCategory();
+          },
+        ),
+      ),
+    );
+  }
+
+  List<FormSectionDefinition> _sectionsWithConfiguredFields(
+    DocumentDefinition definition,
+    DocumentType type,
+    DocumentTypeConfig? config,
+  ) {
+    if (definition.sections.length > 1 || definition.id == 'rent_agreement') {
+      return definition.sections;
+    }
+    return [
+      FormSectionDefinition(
+        id: 'details',
+        title: 'Document Details',
+        description: 'Fill in the required and optional details below',
+        fields: [
+          ..._buildFields(config?.required ?? type.requiredFields, required: true),
+          ..._buildFields(config?.optional ?? type.optionalFields, required: false),
+        ],
+      ),
+      const FormSectionDefinition(
+        id: 'review',
+        title: 'Review',
+        description: 'Review and generate your document',
+        fields: [],
+      ),
+    ];
+  }
+
+  List<FormFieldDefinition> _buildFields(List<String> keys, {required bool required}) {
+    return keys.map((key) {
+      final label = documentFieldLabels[key] ??
+          key
+              .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m[1]} ${m[2]}')
+              .replaceAll('_', ' ')
+              .trim();
+      FormFieldType fieldType = FormFieldType.text;
+      final lower = key.toLowerCase();
+      if (lower.contains('detail') ||
+          lower.contains('description') ||
+          lower.contains('scope') ||
+          lower.contains('term') ||
+          lower.contains('clause') ||
+          lower.contains('evidence') ||
+          lower.contains('content') ||
+          lower.contains('facts') ||
+          lower.contains('ground') ||
+          lower.contains('prayer') ||
+          lower.contains('declaration') ||
+          lower.contains('responsibilit') ||
+          lower.contains('assets') ||
+          lower.contains('beneficiar') ||
+          lower.contains('powers') ||
+          lower.contains('property')) {
+        fieldType = FormFieldType.textarea;
+      } else if (lower.contains('amount') ||
+          lower.contains('price') ||
+          lower.contains('rent') ||
+          lower.contains('salary') ||
+          lower.contains('fee') ||
+          lower.contains('deposit') ||
+          lower.contains('compensation') ||
+          lower.contains('refund') ||
+          lower.contains('paid') ||
+          lower.contains('value') ||
+          lower.contains('income') ||
+          lower.contains('bonus') ||
+          lower.contains('settlement') ||
+          lower.contains('gratuity') ||
+          lower.contains('encashment') ||
+          lower.contains('cost') ||
+          lower.contains('advance') ||
+          lower.contains('balance') ||
+          lower.contains('contribution') ||
+          lower.contains('consideration') ||
+          lower.contains('maintenance') ||
+          lower.contains('sharing') ||
+          lower.contains('rate') ||
+          lower.contains('investment')) {
+        fieldType = FormFieldType.currency;
+      } else if (lower.contains('date')) {
+        fieldType = FormFieldType.date;
+      } else if (lower.contains('number') ||
+          lower.contains('duration') ||
+          lower.contains('days') ||
+          lower.contains('period') ||
+          lower.contains('age') ||
+          lower.contains('ratio') ||
+          lower.contains('rating')) {
+        fieldType = FormFieldType.number;
+      }
+      return FormFieldDefinition(
+        id: key,
+        label: label,
+        hint: 'Enter $label',
+        required: required,
+        type: fieldType,
+      );
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(legalWritingProvider);
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(state.step == 0
-            ? 'Legal Writing'
-            : state.step == 1
-                ? state.type?.label ?? 'Fill Details'
-                : 'Generated Document'),
-        leading: BackButton(
-          onPressed: () {
-            if (state.step == 2) {
-              ref.read(legalWritingProvider.notifier).resetToForm();
-            } else if (state.step == 1) {
-              ref.read(legalWritingProvider.notifier).resetToCategory();
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
+        title: const Text('Legal Writing'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: state.step == 0
-                ? CategoryStep(
-                    onTypeSelected: _selectType,
-                  )
-                : state.step == 1
-                    ? FormStep(
-                        selectedCategory: state.category!,
-                        selectedType: state.type!,
-                        selectedTone: state.tone,
-                        languageCode: state.languageCode,
-                        fieldControllers: _fieldControllers,
-                        extraDetailsController: _extraDetailsController,
-                        formValid: _formValid(state),
-                        onToneChanged: (tone) {
-                          ref.read(legalWritingProvider.notifier).setTone(tone);
-                        },
-                        onLanguageChanged: (code) {
-                          ref.read(legalWritingProvider.notifier).setLanguageCode(code);
-                        },
-                        onGenerate: _generate,
-                        onFieldChanged: (field) {
-                          return (value) {
-                            ref
-                                .read(legalWritingProvider.notifier)
-                                .setFieldValue(field, value);
-                          };
-                        },
-                        onExtraDetailsChanged: (details) {
-                          ref
-                              .read(legalWritingProvider.notifier)
-                              .setExtraDetails(details);
-                        },
-                        fieldHintBuilder: _fieldHint,
-                        inputDecorationBuilder: _inputDecoration,
-                      )
-                    : Column(children: [
-                        ResultStep(
-                          selectedCategory: state.category!,
-                          selectedType: state.type!,
-                          selectedTone: state.tone,
-                          loading: state.loading,
-                          error: state.error,
-                          resultController: _resultController,
-                          isEditing: state.isEditing,
-                          onToggleEditing: () {
-                            ref
-                                .read(legalWritingProvider.notifier)
-                                .toggleEditing();
-                          },
-                          onRegenerate: _generate,
-                          onNewDocument: () {
-                            ref
-                                .read(legalWritingProvider.notifier)
-                                .resetToCategory();
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.picture_as_pdf),
-                              label: const Text('Download / Print PDF'),
-                              style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.legalGold,
-                                  foregroundColor: const Color(0xFF0B0F19),
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 14)),
-                              onPressed: state.loading
-                                  ? null
-                                  : () => LegalPdfService.showPrintPreview(
-                                        _pdfDocumentFor(state),
-                                        Localizations.localeOf(context)
-                                            .languageCode,
-                                      ),
-                            )),
-                      ]),
+          child: CategoryStep(
+            onTypeSelected: _selectType,
           ),
         ),
       ),

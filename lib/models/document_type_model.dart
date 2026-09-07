@@ -4,6 +4,7 @@ class DocumentType {
   final String description;
   final String promptHint;
   final List<String> requiredFields;
+  final List<String> optionalFields;
 
   const DocumentType({
     required this.id,
@@ -11,5 +12,6 @@ class DocumentType {
     required this.description,
     required this.promptHint,
     required this.requiredFields,
+    this.optionalFields = const [],
   });
 }

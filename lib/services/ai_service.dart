@@ -330,8 +330,9 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     }
 
     try {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[AIService] Generating $letterType with Groq fallback...');
+      }
       final result =
           await _groqService.generateRaw(localizedSystemPrompt, userPrompt);
       if (kDebugMode) debugPrint('[AIService] ✅ Groq $letterType success');
@@ -596,8 +597,9 @@ Keep legal terms like RTI, PIL, FIR, IPC, CPC, CrPC, and act names in English wh
       }
       final result =
           await _openRouterService.generateRaw(systemPrompt, userPrompt);
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[AIService] OpenRouter text generation success');
+      }
       return result;
     } catch (e) {
       if (kDebugMode) {
