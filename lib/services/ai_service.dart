@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:juslegal/constants/document_prompts_complete.dart';
 import 'package:juslegal/core/core.dart';
 import 'firebase_token_service.dart';
 
@@ -280,65 +281,60 @@ Provide: 1) Legal rights under Indian consumer law, 2) Step-by-step action plan,
     required String incidentDate,
     String languageCode = 'en',
   }) async {
-    final prompt = _buildLetterPrompt(
-      letterType: letterType,
-      category: category,
-      problemDescription: problemDescription,
-      userRights: userRights,
-      applicableLaw: applicableLaw,
-      steps: steps,
-      senderName: senderName,
-      senderAddress: senderAddress,
-      opponentName: opponentName,
-      incidentDate: incidentDate,
-      languageCode: languageCode,
-    );
-    final localizedPrompt = '$prompt\n${_languageInstruction(languageCode)}';
+    final prompts = DocumentPromptsComplete.getPromptsForType(letterType, languageCode);
+    final systemPrompt = prompts['system'] ?? '';
+    var userPrompt = prompts['user'] ?? '';
+
+    userPrompt = userPrompt
+        .replaceAll('{senderName}', senderName.isNotEmpty ? senderName : '[Your Name]')
+        .replaceAll('{senderAddress}', senderAddress.isNotEmpty ? senderAddress : '[Your Address]')
+        .replaceAll('{recipientName}', opponentName.isNotEmpty ? opponentName : '[Recipient Name]')
+        .replaceAll('{opponentName}', opponentName.isNotEmpty ? opponentName : '[Opponent Name]')
+        .replaceAll('{incidentDate}', incidentDate.isNotEmpty ? incidentDate : '[Date]')
+        .replaceAll('{problemDescription}', problemDescription.isNotEmpty ? problemDescription : '[Problem Details]')
+        .replaceAll('{applicableLaw}', applicableLaw.isNotEmpty ? applicableLaw : '[Applicable Law]');
+
+    final localizedSystemPrompt = '$systemPrompt\n${_languageInstruction(languageCode)}';
 
     String openRouterError = 'Unknown error';
     String groqError = 'Unknown error';
 
-    // 1. Try OpenRouter.
     try {
       if (kDebugMode) {
-        debugPrint('[AIService] Generating letter with OpenRouter...');
+        debugPrint('[AIService] Generating $letterType with OpenRouter...');
       }
-      final result = await _openRouterService.generateRaw('', localizedPrompt);
-      if (kDebugMode) debugPrint('[AIService] OpenRouter letter success');
+      final result = await _openRouterService.generateRaw(localizedSystemPrompt, userPrompt);
+      if (kDebugMode) debugPrint('[AIService] OpenRouter $letterType success');
       return _documentTextFromJson(result);
     } on NetworkException catch (error) {
       openRouterError = error.toString();
-      _logError('OpenRouter letter network error', error);
+      _logError('OpenRouter $letterType network error', error);
     } on ParseException catch (error) {
       openRouterError = error.toString();
-      _logError('OpenRouter letter parse error', error);
+      _logError('OpenRouter $letterType parse error', error);
     } catch (e) {
       openRouterError = e.toString();
-      _logError('OpenRouter letter failed', e);
+      _logError('OpenRouter $letterType failed', e);
     }
 
-    // 2. Try Groq
     try {
-      if (kDebugMode) debugPrint('[AIService] Generating letter with Groq...');
-      final result = await _groqService.generateRaw('', localizedPrompt);
-      if (kDebugMode) debugPrint('[AIService] ✅ Groq letter success');
+      if (kDebugMode) debugPrint('[AIService] Generating $letterType with Groq fallback...');
+      final result = await _groqService.generateRaw(localizedSystemPrompt, userPrompt);
+      if (kDebugMode) debugPrint('[AIService] ✅ Groq $letterType success');
       return _documentTextFromJson(result);
     } on NetworkException catch (error) {
       groqError = error.toString();
-      _logError('Groq letter network error', error);
+      _logError('Groq $letterType network error', error);
     } on ParseException catch (error) {
       groqError = error.toString();
-      _logError('Groq letter parse error', error);
+      _logError('Groq $letterType parse error', error);
     } catch (e) {
       groqError = e.toString();
-      _logError('Groq letter failed', e);
+      _logError('Groq $letterType failed', e);
     }
 
     if (kDebugMode) {
-      debugPrint(
-        '[AIService] Letter generation failed. '
-        'OpenRouter: $openRouterError. Groq: $groqError.',
-      );
+      debugPrint('[AIService] $letterType generation failed. OpenRouter: $openRouterError. Groq: $groqError.');
     }
     throw ErrorSanitizer.toUserFacing(
         AllProvidersFailedException(openRouterError, groqError));
@@ -469,84 +465,6 @@ $schema''';
           'AI response must contain a document_text JSON field.');
     }
     return (decoded['document_text'] as String).trim();
-  }
-
-  String _buildLetterPrompt({
-    required String letterType,
-    required String category,
-    required String problemDescription,
-    required String userRights,
-    required String applicableLaw,
-    required List<String> steps,
-    required String senderName,
-    required String senderAddress,
-    required String opponentName,
-    required String incidentDate,
-    String languageCode = 'en',
-  }) {
-    final typeLabel = {
-          'email': 'a formal consumer complaint email',
-          'police': 'a formal police complaint letter',
-          'consumer_court': 'a formal consumer court complaint draft',
-        }[letterType] ??
-        'a formal complaint letter';
-
-    final stepsText = steps.isNotEmpty
-        ? steps
-            .asMap()
-            .entries
-            .map((e) => '${e.key + 1}. ${e.value}')
-            .join('\n')
-        : 'No specific steps provided.';
-
-    final effectiveSender =
-        senderName.trim().isEmpty ? '[Your Full Name]' : senderName.trim();
-    final effectiveAddress =
-        senderAddress.trim().isEmpty ? '[Your Address]' : senderAddress.trim();
-    final effectiveOpponent = opponentName.trim().isEmpty
-        ? '[Respondent Name/Company]'
-        : opponentName.trim();
-
-    return '''You are a professional Indian legal writer. Write $typeLabel based on the details below.
-
-IMPORTANT RULES:
-- Return ONLY valid JSON. Do not include Markdown, code fences, a preamble, or text outside JSON.
-- Use this exact response schema: {"document_text":"complete letter/document", "structured_fields":{"sender_name":"...", "sender_address":"...", "recipient_name":"...", "subject":"..."}}
-- Put the complete letter/document only in document_text.
-- Write ONLY the letter/document itself — no explanations, no preamble, no notes after the letter
-- Use formal, professional legal language appropriate for India
-- Fill in ALL details using the information provided below
-- If a piece of information is not provided, use a sensible placeholder like [Your Phone Number]
-- Include proper structure: To/From addresses, Subject, Date, Body paragraphs, Closing
-- Write a complete, detailed letter of at least 500 words with 4-6 body paragraphs; do not stop after headings or placeholders
-- Cite the specific law/act provided
-- Keep it professional and assertive but not aggressive
-- End with a clear demand and deadline (e.g., "respond within 7 days")
-
-SENDER DETAILS:
-Name: $effectiveSender
-Address: $effectiveAddress
-
-RESPONDENT / OPPONENT:
-$effectiveOpponent
-
-INCIDENT DATE: $incidentDate
-
-PROBLEM CATEGORY: $category
-
-PROBLEM DESCRIPTION:
-$problemDescription
-
-LEGAL RIGHTS:
-$userRights
-
-APPLICABLE LAW:
-$applicableLaw
-
-RECOMMENDED ACTION STEPS:
-$stepsText
-
-Now write the complete $typeLabel:''';
   }
 
   Future<Map<String, dynamic>> _tryWithRetry(

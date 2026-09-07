@@ -11,6 +11,7 @@ class FormStep extends StatelessWidget {
   final DocumentType selectedType;
 
   final String selectedTone;
+  final String languageCode;
 
   final Map<String, TextEditingController> fieldControllers;
   final TextEditingController extraDetailsController;
@@ -18,6 +19,7 @@ class FormStep extends StatelessWidget {
   final bool formValid;
 
   final ValueChanged<String> onToneChanged;
+  final ValueChanged<String> onLanguageChanged;
   final VoidCallback onGenerate;
   final ValueChanged<String> Function(String field) onFieldChanged;
   final ValueChanged<String> onExtraDetailsChanged;
@@ -30,10 +32,12 @@ class FormStep extends StatelessWidget {
     required this.selectedCategory,
     required this.selectedType,
     required this.selectedTone,
+    required this.languageCode,
     required this.fieldControllers,
     required this.extraDetailsController,
     required this.formValid,
     required this.onToneChanged,
+    required this.onLanguageChanged,
     required this.onGenerate,
     required this.onFieldChanged,
     required this.onExtraDetailsChanged,
@@ -279,6 +283,80 @@ class FormStep extends StatelessWidget {
               inputDecorationBuilder(
             'e.g. Special clauses, conditions, or any other relevant details...',
           ),
+        ),
+
+        const SizedBox(height: 24),
+
+        const SectionLabel('DOCUMENT LANGUAGE'),
+
+        const SizedBox(height: 10),
+
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => onLanguageChanged('en'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: languageCode == 'en'
+                        ? AppColors.trustBlue
+                        : AppColors.surface,
+                    border: Border.all(
+                      color: languageCode == 'en'
+                          ? AppColors.trustBlue
+                          : AppColors.border,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'English',
+                      style: TextStyle(
+                        color: languageCode == 'en'
+                            ? Colors.white
+                            : AppColors.primaryNavy,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => onLanguageChanged('hi'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: languageCode == 'hi'
+                        ? AppColors.trustBlue
+                        : AppColors.surface,
+                    border: Border.all(
+                      color: languageCode == 'hi'
+                          ? AppColors.trustBlue
+                          : AppColors.border,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'हिंदी',
+                      style: TextStyle(
+                        color: languageCode == 'hi'
+                            ? Colors.white
+                            : AppColors.primaryNavy,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
 
         const SizedBox(height: 24),

@@ -58,6 +58,7 @@ class LegalWritingState {
   final int step;
   final bool loading;
   final String tone;
+  final String languageCode;
   final String result;
   final String? error;
   final DocumentCategory? category;
@@ -70,6 +71,7 @@ class LegalWritingState {
     this.step = 0,
     this.loading = false,
     this.tone = 'Formal',
+    this.languageCode = 'en',
     this.result = '',
     this.error,
     this.category,
@@ -83,6 +85,7 @@ class LegalWritingState {
     int? step,
     bool? loading,
     String? tone,
+    String? languageCode,
     String? result,
     String? error,
     DocumentCategory? category,
@@ -95,6 +98,7 @@ class LegalWritingState {
       step: step ?? this.step,
       loading: loading ?? this.loading,
       tone: tone ?? this.tone,
+      languageCode: languageCode ?? this.languageCode,
       result: result ?? this.result,
       error: error,
       category: category ?? this.category,
@@ -125,6 +129,10 @@ class LegalWritingNotifier extends Notifier<LegalWritingState> {
 
   void setTone(String tone) {
     state = state.copyWith(tone: tone);
+  }
+
+  void setLanguageCode(String languageCode) {
+    state = state.copyWith(languageCode: languageCode);
   }
 
   void setFieldValue(String field, String value) {

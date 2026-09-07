@@ -5,11 +5,12 @@ import '../models/form_template_model.dart';
 import 'package:juslegal/core/core.dart';
 import '../providers/locale_provider.dart';
 import 'ai_service.dart';
+import 'document_generation_service.dart';
 
 class DocumentCreationService {
-  final AIService _aiService;
+  final DocumentGenerationService _documentGenerationService;
 
-  DocumentCreationService(this._aiService);
+  DocumentCreationService(this._documentGenerationService);
 
   List<FormTemplateModel> getAllForms() => FormTemplates.all;
 
@@ -69,17 +70,13 @@ class DocumentCreationService {
       values: values,
     );
 
-    final fieldsText = template.fields.map((f) {
-      final value = _value(values, f.key);
-      return '${f.label}: ${value.isEmpty ? "Not provided" : value}';
-    }).join('\n');
-
     try {
-      // Use the new text generation method that handles plain text responses
-      final generatedText = await _aiService.generateDocument(
+      // Use the new DocumentGenerationService with prompt-based generation
+      final language = languageCode == 'hi' ? 'Hindi' : 'English';
+      final generatedText = await _documentGenerationService.generateDocument(
         documentType: template.id,
-        fieldsText: fieldsText,
-        languageCode: languageCode,
+        formData: values,
+        language: language,
       );
 
       return GeneratedFormContent(
@@ -142,11 +139,19 @@ final _aiServiceProvider = Provider<AIService>((ref) {
   return svc;
 });
 
+// -- Document Generation Service provider --------------------------------------
+
+final _documentGenerationServiceProvider = Provider<DocumentGenerationService>((ref) {
+  return DocumentGenerationService(ref.read(_aiServiceProvider));
+});
+
 // -- Document Creation Service provider ---------------------------------------
 
 final documentCreationServiceProvider =
     Provider<DocumentCreationService>((ref) {
-  return DocumentCreationService(ref.read(_aiServiceProvider));
+  return DocumentCreationService(
+    ref.read(_documentGenerationServiceProvider),
+  );
 });
 
 // -- State ---------------------------------------------------------------------

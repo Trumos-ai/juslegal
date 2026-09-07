@@ -181,6 +181,7 @@ Now write the complete ${type.label}:
                 state.fieldValues['Incident Date']?.trim() ??
                 state.fieldValues['Start Date']?.trim() ??
                 '',
+            languageCode: state.languageCode,
           );
 
       if (!mounted) return;
@@ -365,11 +366,15 @@ Now write the complete ${type.label}:
                         selectedCategory: state.category!,
                         selectedType: state.type!,
                         selectedTone: state.tone,
+                        languageCode: state.languageCode,
                         fieldControllers: _fieldControllers,
                         extraDetailsController: _extraDetailsController,
                         formValid: _formValid(state),
                         onToneChanged: (tone) {
                           ref.read(legalWritingProvider.notifier).setTone(tone);
+                        },
+                        onLanguageChanged: (code) {
+                          ref.read(legalWritingProvider.notifier).setLanguageCode(code);
                         },
                         onGenerate: _generate,
                         onFieldChanged: (field) {
